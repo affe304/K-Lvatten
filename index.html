@@ -1,0 +1,1408 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kölvatten</title>
+<meta name="description" content="Spela upp och analysera YDVR-04-loggar från Yacht Devices på karta, med kappseglingsfokus. Filerna läses lokalt i webbläsaren.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#F3F6F7; --surface:#FFFFFF; --line:#D5DEE2; --grid:#E6ECEF;
+  --ink:#14232B; --ink2:#3B4D56; --muted:#66777F;
+  --accent:#B8246E; --accent-soft:rgba(184,36,110,.10); --blue:#2E6FD0;
+  --ap:rgba(46,111,208,.13); --motor:rgba(102,119,127,.10);
+  --warn:#A15C00; --warn-bg:#FFF1DA; --good:#1D7A4A; --good-bg:#E3F4EA; --crit:#B3261E; --crit-bg:#FBE4E2;
+  --shadow:0 1px 2px rgba(20,35,43,.06),0 4px 16px rgba(20,35,43,.06);
+  --f-disp:"Barlow Semi Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark;
+    --bg:#0C151A; --surface:#121F26; --line:#24363F; --grid:#1B2B33;
+    --ink:#E4ECEF; --ink2:#B9C8CE; --muted:#8599A2;
+    --accent:#D95A96; --accent-soft:rgba(217,90,150,.14); --blue:#5B93E6;
+    --ap:rgba(91,147,230,.16); --motor:rgba(133,153,162,.10);
+    --warn:#F0B35A; --warn-bg:#33270F; --good:#6BCB93; --good-bg:#12291C; --crit:#F08A80; --crit-bg:#361815;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);
+  }
+}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);padding-inline:16px;padding-block:20px 48px;margin:0}
+[hidden]{display:none!important}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2,h3{font-family:var(--f-disp);text-wrap:balance;margin:0;letter-spacing:.01em}
+h1{font-size:clamp(28px,4.4vw,44px);line-height:1.05;font-weight:700}
+h2{font-size:24px;font-weight:700}
+h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:70ch}
+.eyebrow{font:600 12px/1 var(--f-disp);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand .name{display:flex;align-items:center;gap:10px;font:700 22px var(--f-disp);letter-spacing:.02em}
+.brand .name svg{flex:none}
+.btn{font:600 14px var(--f-disp);letter-spacing:.04em;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 14px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn:focus-visible,.seg button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* landing */
+.drop{border:2px dashed var(--line);border-radius:14px;background:var(--surface);padding:clamp(24px,6vw,56px);display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop h1{max-width:18ch}
+.drop p{color:var(--ink2)}
+.drop .files{font:13px var(--f-mono);color:var(--muted)}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.how div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.how b{font:600 15px var(--f-disp);letter-spacing:.02em}
+.how p{font-size:14px;color:var(--ink2)}
+.progress{width:min(420px,100%);height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.err{background:var(--crit-bg);color:var(--crit);border-radius:8px;padding:10px 14px;font-size:14px}
+
+/* summary */
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--ink2);font-size:14px}
+.meta b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+
+/* player */
+.player{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+@media (max-width:900px){.player{grid-template-columns:1fr}}
+.mapbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.maptools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{font:500 13px var(--f-disp);letter-spacing:.03em;background:transparent;color:var(--ink2);border:0;padding:6px 11px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+#map{width:100%;aspect-ratio:4/3.1;max-width:100%;background:#AAD3DF}
+.leaflet-container{font-family:var(--f-body)}
+.boat-ic svg{overflow:visible}
+.ev-ic{font:600 11px var(--f-disp);color:var(--blue);white-space:nowrap;text-shadow:0 0 3px #fff,0 0 3px #fff}
+.man-ic{width:16px;height:16px;border-radius:50%;background:#14232B;color:#fff;font:500 9.5px/16px var(--f-mono);text-align:center;border:1.5px solid #fff}
+.legendrow{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:12.5px;color:var(--muted);padding:8px 12px;border-top:1px solid var(--line)}
+.ramp{display:inline-block;width:90px;height:8px;border-radius:4px;vertical-align:middle;margin:0 6px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:5px}
+.ctrl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+.ctrl button.play{width:40px;height:40px;border-radius:50%;border:0;background:var(--accent);color:#fff;cursor:pointer;display:grid;place-items:center;flex:none}
+.ctrl input[type=range]{flex:1 1 200px;accent-color:var(--accent);min-width:0}
+.ctrl .clock{font:500 20px var(--f-mono);min-width:88px}
+.ctrl select{font:13px var(--f-body);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 6px}
+.panel{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;box-shadow:var(--shadow)}
+.state{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pills{display:flex;gap:6px}
+.pill{font:600 12px var(--f-disp);letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:99px;background:var(--grid);color:var(--ink2)}
+.pill.on{background:var(--blue);color:#fff}
+.leg{font-size:13px;color:var(--muted);margin-top:6px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tile{background:var(--surface);padding:9px 10px;display:flex;flex-direction:column;gap:1px}
+.tile .k{font:600 11px var(--f-disp);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font:500 20px/1.15 var(--f-mono);font-variant-numeric:tabular-nums}
+.tile .u{font-size:11px;color:var(--muted)}
+.rose{display:block;width:100%;max-width:220px;margin:0 auto}
+.note{font-size:13px;color:var(--muted)}
+
+/* charts */
+.charts{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:10px 12px 12px;display:flex;flex-direction:column;gap:2px}
+.chart{position:relative}
+.chart .ttl{display:flex;gap:14px;align-items:baseline;font:600 13px var(--f-disp);letter-spacing:.04em;color:var(--ink2);padding:6px 0 0;flex-wrap:wrap}
+.chart .ttl span.l{font:400 12px var(--f-body);color:var(--muted);letter-spacing:0}
+.chart svg{display:block;width:100%;cursor:crosshair}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--surface);font:12px/1.4 var(--f-mono);padding:5px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-100%);top:8px;z-index:3}
+
+/* analysis */
+.sec{display:flex;flex-direction:column;gap:14px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.finding{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.finding .tag{align-self:flex-start;font:600 11px var(--f-disp);letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px}
+.tag.crit{background:var(--crit-bg);color:var(--crit)} .tag.warn{background:var(--warn-bg);color:var(--warn)} .tag.good{background:var(--good-bg);color:var(--good)} .tag.info{background:var(--grid);color:var(--ink2)}
+.finding p{font-size:14.5px;color:var(--ink2)}
+.big{font:500 30px/1 var(--f-mono);color:var(--ink)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:760px}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{font:600 11.5px var(--f-disp);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--bg)}
+td{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+td:nth-child(2){font-family:var(--f-body)}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--accent-soft)}
+tbody tr:last-child td{border-bottom:0}
+.badge{font:600 10.5px var(--f-disp);letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--grid);color:var(--muted);margin-left:6px}
+.polarwrap{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start}
+@media (max-width:800px){.polarwrap{grid-template-columns:1fr}}
+.polar{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px}
+.polar svg{display:block;width:100%;max-width:340px;margin:0 auto}
+.devs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
+.devs div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px}
+.devs b{display:block;font-weight:600}
+.devs span{color:var(--muted);font:12px var(--f-mono)}
+.savebar{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:4px}
+.saverow{display:flex;flex-wrap:wrap;gap:8px}
+.saverow input,.trip-act input{flex:1 1 220px;min-width:0;font:15px var(--f-body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.sm{font-size:13px;padding:5px 10px}
+.btn.danger{background:var(--crit);border-color:var(--crit);color:#fff}
+.libhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.triplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.trip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--grid)}
+.trip:last-child{border-bottom:0}
+.trip-open{flex:1 1 260px;min-width:0;text-align:left;background:none;border:0;padding:4px 0;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;gap:2px}
+.trip-open:hover .trip-name{color:var(--accent)}
+.trip-open:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.trip-name{font:600 17px var(--f-disp);letter-spacing:.01em}
+.trip-meta{font:12.5px var(--f-mono);color:var(--muted)}
+.trip-act{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.auth{display:flex;align-items:center;gap:8px}
+.auth .note{max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+.loginbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow)}
+.sharebox{flex-basis:100%;display:flex;flex-direction:column;gap:6px;padding-top:6px}
+footer{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="name">
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M15 3c4 5 5 12 4 22h-8C10 15 11 8 15 3z" fill="var(--ink)"/><path d="M11 27c-3 1-6 1-9 0M19 27c3 1 6 1 9 0" stroke="var(--accent)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      Kölvatten
+    </div>
+    <div class="actions">
+      <div class="auth" id="auth" hidden>
+        <span id="authIn" hidden><span class="note" id="authWho"></span> <button class="btn sm" id="btnLogout" type="button">Logga ut</button></span>
+        <span id="authOut"><button class="btn" id="btnLogin" type="button">Logga in</button></span>
+      </div>
+    </div>
+    <div class="actions" id="topActions" hidden>
+      <button class="btn" id="btnCsv" type="button">Spara CSV</button>
+      <button class="btn" id="btnGpx" type="button">Spara GPX</button>
+      <button class="btn primary" id="btnNew" type="button">Mina turer</button>
+    </div>
+  </div>
+
+  <form class="loginbox" id="loginBox" hidden>
+    <label for="loginEmail"><b>Logga in med e-post</b></label>
+    <p class="note">Du får en inloggningslänk. Inget lösenord behövs. Första gången skapas ett konto automatiskt.</p>
+    <div class="saverow" id="loginForm_row"><input type="email" id="loginEmail" autocomplete="email" placeholder="namn@exempel.se" required><button class="btn primary" id="loginSend" type="submit">Skicka länk</button></div>
+    <span class="note" id="loginMsg" role="status"></span>
+  </form>
+  <section id="landing" class="sec">
+    <label class="drop" id="drop" for="fileIn">
+      <div class="eyebrow">Yacht Devices YDVR-04</div>
+      <h1>Släpp loggfilerna här</h1>
+      <p>Dra in en eller flera .DAT-filer från voyage recordern, eller klicka för att välja. Filer från samma tur slås ihop automatiskt. En nedladdad .kolvatten-fil går också att dra in.</p>
+      <span class="btn primary">Välj filer</span>
+      <input type="file" id="fileIn" accept=".dat,.DAT,.kolvatten" multiple hidden>
+      <div class="progress" id="prog" hidden><i></i></div>
+      <div class="files" id="fileList"></div>
+    </label>
+    <div class="err" id="err" hidden></div>
+    <section class="sec" id="library" hidden aria-labelledby="libTitle">
+      <div class="libhead"><h2 id="libTitle">Mina turer</h2><span class="note" id="libCount"></span></div>
+      <p class="note" id="libLocalNote">Sparade turer ligger i den här webbläsaren på den här enheten. Logga in för att spara dem i molnet och se dem på alla enheter. Med <b>Ladda ner tur</b> får du en fil som kan dras in här igen.</p>
+      <p class="note" id="libCloudNote" hidden>Turerna ligger i molnet och följer med ditt konto. Turer märkta <b>i webbläsaren</b> sparades innan du loggade in och kan flyttas upp.</p>
+      <ul class="triplist" id="libList"></ul>
+    </section>
+    <div class="how">
+      <div id="howStore"><b>Stannar på din dator</b><p>Filerna läses och analyseras i webbläsaren. Inget laddas upp till någon server. Sparade turer ligger i din webbläsare och kan namnges och öppnas igen.</p></div>
+      <div><b>Karta och uppspelning</b><p>Spåret på sjökort med OpenSeaMap-sjömärken, instrumentpanel, vindros och grafer som följer med tidslinjen.</p></div>
+      <div><b>Kappseglingsanalys</b><p>Sträckor, slag och gippar med förlust i meter, polardiagram från seglade sträckor och en kontroll av logg, kompass och vindgivare.</p></div>
+    </div>
+    <p class="note">Var hittar jag filerna? På YDVR-04:ans microSD-kort, i filer som heter t.ex. 00010049.DAT. Varje fil innehåller några minuter till en timme. Välj alla filer från turen.</p>
+  </section>
+
+  <main id="app" class="wrap" hidden style="gap:28px">
+    <header class="sec" style="gap:10px">
+      <div class="eyebrow" id="hEyebrow"></div>
+      <h1 id="hTitle"></h1>
+      <div class="meta" id="hMeta"></div>
+      <div class="savebar">
+        <label for="tripName" class="eyebrow">Namn på turen</label>
+        <div class="saverow">
+          <input type="text" id="tripName" maxlength="80" autocomplete="off" placeholder="t.ex. Onsdagsseglingen, race 3">
+          <button class="btn primary" id="btnSave" type="button">Spara tur</button>
+          <button class="btn" id="btnShare" type="button" hidden>Dela</button>
+          <button class="btn" id="btnExport" type="button">Ladda ner tur</button>
+        </div>
+        <div class="sharebox" id="shareBox" hidden></div>
+        <span class="note" id="saveMsg" role="status"></span>
+      </div>
+    </header>
+
+    <section class="player" aria-label="Uppspelning">
+      <div class="mapbox">
+        <div class="maptools">
+          <div class="seg" role="group" aria-label="Kartbakgrund">
+            <button id="bgChart" aria-pressed="true" type="button">Karta</button>
+            <button id="bgSat" aria-pressed="false" type="button">Flygfoto</button>
+          </div>
+          <div class="seg" role="group" aria-label="Färglägg spåret efter">
+            <button id="cSpeed" aria-pressed="true" type="button">Fart</button>
+            <button id="cDepth" aria-pressed="false" type="button">Djup</button>
+            <button id="cWind" aria-pressed="false" type="button">Vindvinkel</button>
+            <button id="cPilot" aria-pressed="false" type="button">Styrning</button>
+          </div>
+        </div>
+        <div id="map" role="application" aria-label="Karta med båtens spår"></div>
+        <div class="legendrow" id="legend"></div>
+        <div class="ctrl">
+          <button class="play" id="play" aria-label="Spela upp" type="button">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path id="playIcon" d="M4 2l10 6-10 6z" fill="currentColor"/></svg>
+          </button>
+          <span class="clock" id="clock">--:--:--</span>
+          <input type="range" id="scrub" min="0" max="1" value="0" step="1" aria-label="Tidslinje">
+          <label class="note" for="rate">Tempo</label>
+          <select id="rate"><option value="10">10×</option><option value="30" selected>30×</option><option value="60">60×</option><option value="180">180×</option><option value="600">600×</option></select>
+        </div>
+      </div>
+      <aside class="panel" aria-label="Instrument">
+        <div class="card">
+          <div class="state"><h3 id="legName">–</h3><span class="pills"><span class="pill" id="motorPill" hidden>Motor</span><span class="pill" id="apPill" hidden>Standby</span></span></div>
+          <div class="leg" id="legNote"></div>
+        </div>
+        <div class="tiles" id="tiles"></div>
+        <div class="card">
+          <svg class="rose" id="rose" viewBox="-110 -110 220 220" role="img" aria-label="Vindros med båten uppåt"></svg>
+          <div class="note" style="text-align:center">Båt uppåt. <span style="color:var(--accent)">■</span> sann vind &nbsp; <span style="color:var(--blue)">■</span> skenbar vind</div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="charts" id="charts" aria-label="Tidsserier"></section>
+
+    <section class="sec">
+      <div class="eyebrow">Analys</div>
+      <h2>Vad datan säger</h2>
+      <div class="grid2" id="findings"></div>
+    </section>
+
+    <section class="sec">
+      <h2>Sträckor</h2>
+      <p class="note">Raka sträckor under gång, minst 30 sekunder, delade vid girar. Klicka på en rad för att hoppa dit. Kurs och TWD är magnetiska, COG är sann.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Start</th><th>Sträcka</th><th>Längd</th><th>Distans</th><th>SOG</th><th>STW</th><th>Kurs</th><th>TWS</th><th>TWA</th><th>TWD</th><th>VMG</th><th>Kräng.</th><th>|Roder|</th></tr></thead>
+        <tbody id="legRows"></tbody>
+      </table></div>
+    </section>
+
+    <section class="sec">
+      <h2>Slag, gippar och girar</h2>
+      <p class="note">Förlust = hur många meter båten tappade mot sin VMG de 20 sekunderna före manövern, räknat fram till 15 sekunder efter. Räknas bara för seglade manövrer.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Tid</th><th>Manöver</th><th>Vridning</th><th>TWA före</th><th>TWA efter</th><th>Fart före</th><th>Lägsta fart</th><th>Tillbaka 90 %</th><th>Förlust</th></tr></thead>
+        <tbody id="manRows"></tbody>
+      </table></div>
+    </section>
+
+    <section class="sec">
+      <h2>Polardiagram</h2>
+      <div class="polarwrap">
+        <div class="polar"><svg id="polar" viewBox="-20 -250 290 500" role="img" aria-label="Båtfart mot sann vindvinkel"></svg></div>
+        <div class="sec" style="gap:10px">
+          <p class="note" id="polarNote"></p>
+          <div id="polarLegend" class="note"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>Enheter på nätet</h2>
+      <div class="devs" id="devs"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Kölvatten läser YDVR-04-filer (formatet "YDVR v04") helt i webbläsaren. Kartdata © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-bidragsgivare, sjömärken © <a href="https://www.openseamap.org" target="_blank" rel="noopener">OpenSeaMap</a>, flygfoto © Esri. Inte för navigering.</span>
+  </footer>
+</div>
+<script>
+/* ====== INSTÄLLNINGAR: fyll i från Supabase → Project Settings → API ======
+   Lämna som de är för att köra utan molnlagring (turer sparas då bara i webbläsaren). */
+window.KOLVATTEN_CONFIG = {
+  supabaseUrl: "https://DITT-PROJEKT.supabase.co",
+  supabaseAnonKey: "DIN-ANON-PUBLIC-NYCKEL"
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>(typeof window!=="undefined"?window:globalThis).PGNSETS={"fast":[126208,126464,126720,126983,126984,126985,126986,126987,126988,126996,126998,127233,127237,127489,127490,127491,127494,127495,127496,127497,127498,127503,127504,127506,127507,127509,127510,127511,127512,127513,127514,128275,128520,128538,129029,129038,129039,129040,129041,129044,129045,129284,129285,129301,129302,129538,129540,129541,129542,129545,129547,129549,129551,129556,129792,129793,129794,129795,129796,129797,129798,129799,129800,129801,129802,129803,129804,129805,129806,129807,129808,129809,129810,129811,129812,129813,129814,129815,129816,130052,130053,130054,130060,130061,130064,130065,130066,130067,130068,130069,130070,130071,130072,130073,130074,130320,130321,130322,130323,130324,130329,130330,130561,130562,130563,130564,130565,130566,130567,130568,130569,130570,130571,130572,130573,130574,130575,130577,130578,130580,130581,130583,130584,130586,130816,130817,130818,130819,130820,130821,130822,130823,130824,130825,130826,130827,130828,130829,130830,130831,130832,130833,130834,130835,130836,130837,130838,130839,130840,130841,130842,130843,130844,130845,130846,130847,130848,130849,130850,130851,130852,130856,130860,130880,130881,130900,130910,130911,130912,130913,130918,130921,130939,130944,130945,130946,130947,130951,131008,131011,131012],"known":[59392,59904,60160,60416,60928,61184,61440,65001,65002,65003,65004,65005,65006,65007,65008,65009,65010,65011,65012,65013,65014,65015,65016,65017,65018,65019,65020,65021,65022,65023,65024,65025,65026,65027,65028,65029,65030,65240,65280,65281,65282,65283,65284,65285,65286,65287,65288,65289,65290,65291,65292,65293,65294,65295,65296,65297,65298,65299,65300,65301,65302,65303,65304,65305,65306,65308,65309,65310,65311,65312,65313,65314,65315,65316,65317,65323,65324,65325,65329,65330,65332,65340,65341,65344,65345,65346,65348,65349,65350,65359,65360,65361,65371,65374,65379,65403,65408,65409,65410,65420,65424,65440,65441,65472,65480,126208,126464,126720,126976,126983,126984,126985,126986,126987,126988,126992,126993,126996,126998,127233,127237,127245,127250,127251,127252,127257,127258,127488,127489,127490,127491,127493,127494,127495,127496,127497,127498,127500,127501,127502,127503,127504,127505,127506,127507,127508,127509,127510,127511,127512,127513,127514,127744,127745,127746,127747,127748,127749,127750,127751,128000,128001,128002,128003,128006,128007,128008,128259,128267,128275,128520,128538,128768,128769,128776,128777,128778,128780,129025,129026,129027,129028,129029,129033,129038,129039,129040,129041,129044,129045,129283,129284,129285,129291,129301,129302,129538,129539,129540,129541,129542,129545,129546,129547,129549,129550,129551,129556,129792,129793,129794,129795,129796,129797,129798,129799,129800,129801,129802,129803,129804,129805,129806,129807,129808,129809,129810,129811,129812,129813,129814,129815,129816,130052,130053,130054,130060,130061,130064,130065,130066,130067,130068,130069,130070,130071,130072,130073,130074,130306,130310,130311,130312,130313,130314,130315,130316,130320,130321,130322,130323,130324,130329,130330,130560,130561,130562,130563,130564,130565,130566,130567,130568,130569,130570,130571,130572,130573,130574,130575,130576,130577,130578,130579,130580,130581,130582,130583,130584,130585,130586,130816,130817,130818,130819,130820,130821,130822,130823,130824,130825,130826,130827,130828,130829,130830,130831,130832,130833,130834,130835,130836,130837,130838,130839,130840,130841,130842,130843,130844,130845,130846,130847,130848,130849,130850,130851,130852,130856,130860,130880,130881,130900,130910,130911,130912,130913,130918,130921,130939,130944,130945,130946,130947,130951,131008,131011,131012]};</script>
+<script>/* YDVR-04 parser, NMEA 2000 decoders and sailing analysis. Runs in browser and node. */
+(function (G) {
+'use strict';
+const PGNSETS = G.PGNSETS;
+const FAST = new Set(PGNSETS.fast), KNOWN = new Set(PGNSETS.known);
+const KN = 1.943844, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const norm360 = a => ((a % 360) + 360) % 360;
+const norm180 = a => ((a + 540) % 360) - 180;
+
+/* ---------------- YDVR record parser ---------------- */
+function hdr(b, i) {
+  const mm = b[i] | (b[i + 1] << 8);
+  const pid = (b[i + 2] | (b[i + 3] << 8) | (b[i + 4] << 16) | (b[i + 5] << 24)) >>> 0;
+  if (pid === 0xffffffff) return { mm, pid, pgn: -1 };
+  const sa = pid & 0xff, ps = (pid >>> 8) & 0xff, pf = (pid >>> 16) & 0xff, dp = (pid >>> 24) & 1;
+  let pgn, dst;
+  if (pf < 240) { pgn = (dp << 16) | (pf << 8); dst = ps; } else { pgn = (dp << 16) | (pf << 8) | ps; dst = 255; }
+  return { mm, pid, pgn, sa, dst, prio: (pid >>> 26) & 7 };
+}
+function lens(b, i, pgn) {
+  if (pgn === -1) return [8];
+  if (pgn === 59904) return [3];
+  if (FAST.has(pgn) && i + 7 < b.length) return [2 + b[i + 7], 8];
+  return [8];
+}
+function plausible(b, i, mm0, depth) {
+  if (i === b.length) return true;
+  if (i + 6 > b.length) return false;
+  const h = hdr(b, i);
+  if (h.mm >= 60000) return false;
+  if (h.pid !== 0xffffffff) {
+    if (h.pid >>> 29) return false;
+    const p = h.pgn;
+    if (!KNOWN.has(p) && !(p >= 0xff00 && p <= 0xffff) && !(p >= 0x1ef00 && p <= 0x1ffff)) return false;
+    if (((h.mm - mm0 + 60000) % 60000) > 5000) return false;
+  }
+  if (depth === 0) return true;
+  for (const L of lens(b, i, h.pgn)) if (plausible(b, i + 6 + L, h.mm, depth - 1)) return true;
+  return false;
+}
+function parseYDVR(buf) {
+  const b = new Uint8Array(buf);
+  if (b.length < 14 || String.fromCharCode(...b.slice(6, 14)) !== 'YDVR v04') {
+    throw new Error('Filen ser inte ut som en YDVR-04-logg (saknar "YDVR v04"-huvud).');
+  }
+  const out = [], svc = [];
+  let i = 0, prev = null, base = 0, skipped = 0;
+  while (i + 6 <= b.length) {
+    const h = hdr(b, i);
+    if (h.mm >= 60000 || (h.pid !== 0xffffffff && (h.pid >>> 29))) { i++; skipped++; continue; }
+    const ls = lens(b, i, h.pgn);
+    let L = ls[0];
+    if (ls.length > 1) { L = ls.find(c => plausible(b, i + 6 + c, h.mm, 2)) ?? ls[0]; }
+    const start = i + 6;
+    i = start + L;
+    if (i > b.length) break;
+    if (h.pid === 0xffffffff) { svc.push({ mm: h.mm, d: b.subarray(start, start + 8) }); continue; }
+    let d = b.subarray(start, start + L);
+    if (FAST.has(h.pgn) && L !== 8) d = d.subarray(2);
+    if (prev !== null && h.mm < prev) base += 60000;
+    prev = h.mm;
+    out.push({ ms: base + h.mm, pgn: h.pgn, src: h.sa, dst: h.dst, d });
+  }
+  return { recs: out, svc, skipped };
+}
+
+/* ---------------- field decoders ---------------- */
+const u8 = (d, o) => d[o];
+const u16 = (d, o) => d[o] | (d[o + 1] << 8);
+const i16 = (d, o) => { const v = u16(d, o); return v & 0x8000 ? v - 0x10000 : v; };
+const u32 = (d, o) => (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24)) >>> 0;
+const i32 = (d, o) => d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24);
+const ok16 = v => v < 0xfffd, oki16 = v => v < 0x7ffd, ok32 = v => v < 0xfffffffd;
+const str = (d, o, n) => { let s = ''; for (let k = o; k < o + n && k < d.length; k++) { const c = d[k]; if (c === 0 || c === 0xff) break; s += String.fromCharCode(c); } return s.replace(/@+$/, '').trim(); };
+
+const DEC = {
+  126992: d => { const dt = u16(d, 2), t = u32(d, 4); return ok16(dt) && ok32(t) ? { utc: dt * 86400000 + t / 10 } : null; },
+  129029: d => { if (d.length < 7) return null; const dt = u16(d, 1), t = u32(d, 3); return ok16(dt) && ok32(t) ? { utc: dt * 86400000 + t / 10 } : null; },
+  129025: d => { const la = i32(d, 0), lo = i32(d, 4); return la === 0x7fffffff || lo === 0x7fffffff ? null : { lat: la * 1e-7, lon: lo * 1e-7 }; },
+  129026: d => { const c = u16(d, 2), s = u16(d, 4); return ok16(s) ? { cog: ok16(c) ? norm360(c * 1e-4 * R2D) : null, sog: s * 0.01 * KN, ref: d[1] & 3 } : null; },
+  127250: d => { const h = u16(d, 1); if (!ok16(h)) return null; const vr = i16(d, 5); return { hdg: norm360(h * 1e-4 * R2D), ref: d[7] & 3, var: oki16(vr) ? vr * 1e-4 * R2D : null }; },
+  127258: d => { const v = i16(d, 4); return oki16(v) ? { var: v * 1e-4 * R2D } : null; },
+  128259: d => { const s = u16(d, 1); return ok16(s) ? { stw: s * 0.01 * KN } : null; },
+  127245: d => { const p = i16(d, 4); return oki16(p) ? { rud: p * 1e-4 * R2D, inst: d[0] } : null; },
+  127257: d => { const r = i16(d, 5), p = i16(d, 3); return oki16(r) ? { roll: r * 1e-4 * R2D, pitch: oki16(p) ? p * 1e-4 * R2D : null } : null; },
+  128267: d => { const v = u32(d, 1); return ok32(v) ? { dep: v * 0.01, off: i16(d, 5) * 0.001 } : null; },
+  130306: d => { const s = u16(d, 1), a = u16(d, 3); return ok16(s) && ok16(a) ? { ws: s * 0.01 * KN, wa: a * 1e-4 * R2D, ref: d[5] & 7 } : null; },
+  128275: d => { const l = u32(d, 6); return ok32(l) ? { log: l } : null; },
+  130316: d => { const t = d[3] | (d[4] << 8) | (d[5] << 16); return t < 0xfffffd ? { temp: t * 0.001 - 273.15, src: d[2] } : null; },
+  130310: d => { const t = u16(d, 1); return ok16(t) ? { temp: t * 0.01 - 273.15 } : null; },
+  127488: d => { const r = u16(d, 1); return ok16(r) ? { rpm: r * 0.25, inst: d[0] } : null; },
+  65379: d => (u16(d, 0) & 0x7ff) === 1851 ? { mode: u16(d, 2) } : null,
+  65360: d => (u16(d, 0) & 0x7ff) === 1851 ? { lock: ok16(u16(d, 5)) ? u16(d, 5) * 1e-4 * R2D : null } : null,
+  126996: d => d.length >= 134 ? { model: str(d, 4, 32), sw: str(d, 36, 32), ver: str(d, 68, 32), serial: str(d, 100, 32) } : null,
+};
+
+/* ---------------- series builder ---------------- */
+async function buildSeries(files, onProgress) {
+  // files: [{name, buf}]
+  const parsed = [];
+  for (let f = 0; f < files.length; f++) {
+    const p = parseYDVR(files[f].buf);
+    // time anchor
+    let anchor = null;
+    for (const r of p.recs) {
+      if (r.pgn === 126992 || r.pgn === 129029) { const v = DEC[r.pgn](r.d); if (v && v.utc > 1e12) { anchor = v.utc - r.ms; break; } }
+    }
+    parsed.push({ name: files[f].name, p, anchor, dur: p.recs.length ? p.recs[p.recs.length - 1].ms : 0 });
+    if (onProgress) { onProgress((f + 1) / files.length * 0.5); await new Promise(r => setTimeout(r, 0)); }
+  }
+  // chain files without anchor
+  parsed.sort((a, b) => (a.anchor ?? Infinity) - (b.anchor ?? Infinity) || a.name.localeCompare(b.name));
+  for (let k = 0; k < parsed.length; k++) {
+    if (parsed[k].anchor == null) parsed[k].anchor = k ? parsed[k - 1].anchor + parsed[k - 1].dur + 1000 : null;
+  }
+  const anchored = parsed.filter(x => x.anchor != null);
+  if (!anchored.length) throw new Error('Hittade ingen GPS-tid (PGN 126992/129029) i filerna, så turen kan inte placeras i tid.');
+  // source counts per pgn to pick primary source
+  const cnt = {};
+  for (const x of anchored) for (const r of x.p.recs) { const k = r.pgn + ':' + r.src; cnt[k] = (cnt[k] || 0) + 1; }
+  const best = {};
+  for (const k in cnt) { const [pg, s] = k.split(':').map(Number); if (!best[pg] || cnt[k] > cnt[pg + ':' + best[pg]]) best[pg] = s; }
+  // AIS transceivers also send 129025/129026; prefer the non-AIS source if it is close in count
+  const t0 = Math.min(...anchored.map(x => x.anchor + (x.p.recs[0]?.ms || 0)));
+  const t1 = Math.max(...anchored.map(x => x.anchor + x.dur));
+  const N = Math.floor((t1 - t0) / 1000) + 1;
+  if (N > 7 * 86400) throw new Error('Filerna spänner över mer än en vecka. Ladda upp en tur i taget.');
+  const acc = {};
+  const add = (k, i, v) => { let a = acc[k]; if (!a) a = acc[k] = { s: new Float64Array(N), n: new Uint16Array(N), c: null, x: null }; a.s[i] += v; a.n[i]++; };
+  const addAng = (k, i, deg) => { let a = acc[k]; if (!a) a = acc[k] = { s: null, n: new Uint16Array(N), c: new Float64Array(N), x: new Float64Array(N) }; a.c[i] += Math.cos(deg * D2R); a.x[i] += Math.sin(deg * D2R); a.n[i]++; };
+  const last = { mode: new Int16Array(N).fill(-1), lock: new Float32Array(N).fill(NaN), rpm: new Float32Array(N).fill(NaN) };
+  const devices = {}, busWind = { g: 0 }, meta = { var: null, varSeen: false, recs: 0, files: anchored.length, pgns: new Set(), depthOffset: null };
+  let fi = 0;
+  for (const x of anchored) {
+    for (const r of x.p.recs) {
+      meta.recs++; meta.pgns.add(r.pgn);
+      const i = Math.floor((x.anchor + r.ms - t0) / 1000);
+      if (i < 0 || i >= N) continue;
+      const dec = DEC[r.pgn]; if (!dec) continue;
+      let v; try { v = dec(r.d); } catch (e) { v = null; }
+      if (!v) continue;
+      const pg = r.pgn, primary = best[pg] === r.src;
+      switch (pg) {
+        case 129025: if (primary) { add('lat', i, v.lat); add('lon', i, v.lon); } break;
+        case 129026: if (primary) { add('sog', i, v.sog); if (v.cog != null && v.sog > 0.3) addAng('cog', i, v.cog); } break;
+        case 127250: if (primary) { addAng('hdg', i, v.hdg); meta.hdgRef = v.ref; if (v.var != null) { meta.var = v.var; meta.varSeen = true; } } break;
+        case 127258: meta.var = v.var; meta.varSeen = true; break;
+        case 128259: if (primary) add('stw', i, v.stw); break;
+        case 127245: if (primary && v.inst === 0) add('rud', i, v.rud); break;
+        case 127257: if (primary) add('heel', i, v.roll); break;
+        case 128267: if (primary) { add('depRaw', i, v.dep); meta.depthOffset = v.off; } break;
+        case 130306:
+          if (v.ref === 2) { add('aws', i, v.ws); addAng('awa', i, v.wa); }
+          else if (v.ref === 0 || v.ref === 1) { addAng('busTwd', i, v.wa); busWind.g = v.ref; }
+          break;
+        case 128275: add('log', i, v.log); break;
+        case 130316: case 130310: add('temp', i, v.temp); break;
+        case 127488: last.rpm[i] = isNaN(last.rpm[i]) ? v.rpm : Math.max(last.rpm[i], v.rpm); break;
+        case 65379: last.mode[i] = v.mode; break;
+        case 65360: if (v.lock != null) last.lock[i] = v.lock; break;
+        case 126996: devices[r.src] = v; break;
+      }
+    }
+    fi++;
+    if (onProgress) { onProgress(0.5 + fi / anchored.length * 0.4); await new Promise(r => setTimeout(r, 0)); }
+  }
+  // finalize arrays with forward fill (max gap 10 s for dynamic values)
+  const S = { N, t0, cols: {} };
+  const fin = (k, gap = 10, ang = false) => {
+    const a = acc[k]; if (!a) return null;
+    const out = new Array(N).fill(null); let lastV = null, lastI = -1e9;
+    for (let i = 0; i < N; i++) {
+      if (a.n[i]) { lastV = ang ? norm360(Math.atan2(a.x[i], a.c[i]) * R2D) : a.s[i] / a.n[i]; lastI = i; }
+      if (i - lastI <= gap) out[i] = lastV;
+    }
+    return out;
+  };
+  for (const k of ['lat', 'lon', 'sog', 'stw', 'rud', 'heel', 'aws', 'temp', 'log']) S.cols[k] = fin(k, k === 'log' || k === 'temp' ? 120 : 10);
+  for (const k of ['cog', 'hdg', 'awa', 'busTwd']) S.cols[k] = fin(k, 10, true);
+  S.cols.depRaw = fin('depRaw', 10);
+  // mode forward fill
+  const mode = new Array(N).fill(null); let lm = null, lmi = -1e9;
+  const lock = new Array(N).fill(null); let ll = null;
+  const rpm = new Array(N).fill(null); let lr = null, lri = -1e9;
+  for (let i = 0; i < N; i++) {
+    if (last.mode[i] >= 0) { lm = last.mode[i]; lmi = i; }
+    mode[i] = i - lmi < 30 ? lm : null;
+    if (!isNaN(last.lock[i])) ll = last.lock[i];
+    lock[i] = mode[i] ? ll : null;
+    if (!isNaN(last.rpm[i])) { lr = last.rpm[i]; lri = i; }
+    rpm[i] = i - lri < 10 ? lr : null;
+  }
+  S.cols.mode = mode; S.cols.lock = lock; S.cols.rpm = acc.rpm || meta.pgns.has(127488) ? rpm : null;
+  S.devices = devices; S.meta = meta; S.busWindRef = busWind.g;
+  derive(S);
+  if (onProgress) onProgress(1);
+  return S;
+}
+
+/* ---------------- derived values ---------------- */
+function derive(S) {
+  const C = S.cols, N = S.N;
+  // AWA to signed
+  if (C.awa) C.awa = C.awa.map(v => v == null ? null : norm180(v));
+  // depth: remove false echoes (> 3x rolling median of +-30 s, or jumps)
+  const dep = C.depRaw;
+  S.depthStats = { total: 0, bad: 0 };
+  if (dep) {
+    const clean = new Array(N).fill(null);
+    for (let i = 0; i < N; i++) {
+      const v = dep[i]; if (v == null) continue; S.depthStats.total++;
+      const w = []; for (let k = Math.max(0, i - 30); k < Math.min(N, i + 31); k += 3) if (dep[k] != null) w.push(dep[k]);
+      w.sort((a, b) => a - b); const med = w[Math.floor(w.length / 2)];
+      if (v > med * 3 && v - med > 5) { S.depthStats.bad++; continue; }
+      clean[i] = v;
+    }
+    // segment filter: stretches that sit far deeper than the stretches on both sides (lost bottom / propwash)
+    const segs = []; let sa = null, lastV = null, lastI = -1;
+    for (let i = 0; i < N; i++) { const v = clean[i]; if (v == null) continue;
+      if (sa == null) sa = i; else if (Math.abs(v - lastV) > Math.max(5, 0.6 * Math.min(v, lastV)) && i - lastI <= 10) { segs.push([sa, i]); sa = i; }
+      lastV = v; lastI = i; }
+    if (sa != null) segs.push([sa, N]);
+    const med = ([a, b]) => { const w = []; for (let k = a; k < b; k++) if (clean[k] != null) w.push(clean[k]); w.sort((x, y) => x - y); return w.length ? w[Math.floor(w.length / 2)] : null; };
+    const meds = segs.map(med);
+    segs.forEach((sg, k) => { const m = meds[k]; const nb = [meds[k - 1], meds[k + 1]].filter(x => x != null); if (m == null || !nb.length) return;
+      if (nb.every(x => m > 3 * x && m - x > 5)) for (let q = sg[0]; q < sg[1]; q++) if (clean[q] != null) { clean[q] = null; S.depthStats.bad++; } });
+    // forward fill small gaps
+    let lv = null, li = -1e9; for (let i = 0; i < N; i++) { if (clean[i] != null) { lv = clean[i]; li = i; } else if (i - li < 30) clean[i] = lv; }
+    C.dep = clean;
+  } else C.dep = null;
+  // true wind (water referenced) from apparent wind + boat speed through water (fallback SOG)
+  const tws = new Array(N).fill(null), twa = new Array(N).fill(null), twd = new Array(N).fill(null);
+  if (C.aws && C.awa) {
+    for (let i = 0; i < N; i++) {
+      const aws = C.aws[i], awa = C.awa[i]; if (aws == null || awa == null) continue;
+      const bs = C.stw && C.stw[i] != null ? C.stw[i] : (C.sog ? C.sog[i] : 0) || 0;
+      const x = aws * Math.cos(awa * D2R) - bs, y = aws * Math.sin(awa * D2R);
+      tws[i] = Math.hypot(x, y); twa[i] = Math.atan2(y, x) * R2D;
+      if (C.hdg && C.hdg[i] != null) twd[i] = norm360(C.hdg[i] + twa[i]);
+    }
+    C.tws = tws; C.twa = twa; C.twd = twd;
+  } else { C.tws = C.twa = C.twd = null; }
+  // smoothed helpers
+  C.sogS = smooth(C.sog, 5); C.hdgS = smoothAng(C.hdg || C.cog, 5);
+  C.vmg = C.twa ? C.twa.map((a, i) => a == null ? null : ((C.stw && C.stw[i] != null ? C.stw[i] : C.sog?.[i]) ?? 0) * Math.cos(a * D2R)) : null;
+  // position forward/back fill
+  if (C.lat) { let first = C.lat.findIndex(v => v != null); for (let i = 0; i < first; i++) { C.lat[i] = C.lat[first]; C.lon[i] = C.lon[first]; } let lv = null, lo = null; for (let i = 0; i < N; i++) { if (C.lat[i] != null) { lv = C.lat[i]; lo = C.lon[i]; } else { C.lat[i] = lv; C.lon[i] = lo; } } }
+  S.ap = C.mode ? C.mode.map(m => m != null && m !== 0) : new Array(N).fill(false);
+  analyse(S);
+}
+function smooth(a, w) { if (!a) return null; const N = a.length, o = new Array(N).fill(null); for (let i = 0; i < N; i++) { let s = 0, n = 0; for (let k = i - w; k <= i + w; k++) if (k >= 0 && k < N && a[k] != null) { s += a[k]; n++; } o[i] = n ? s / n : null; } return o; }
+function smoothAng(a, w) { if (!a) return null; const N = a.length, o = new Array(N).fill(null); for (let i = 0; i < N; i++) { let c = 0, s = 0, n = 0; for (let k = i - w; k <= i + w; k++) if (k >= 0 && k < N && a[k] != null) { c += Math.cos(a[k] * D2R); s += Math.sin(a[k] * D2R); n++; } o[i] = n ? norm360(Math.atan2(s, c) * R2D) : null; } return o; }
+const mean = a => { let s = 0, n = 0; for (const v of a) if (v != null && !isNaN(v)) { s += v; n++; } return n ? s / n : null; };
+const cmean = a => { let c = 0, s = 0, n = 0; for (const v of a) if (v != null) { c += Math.cos(v * D2R); s += Math.sin(v * D2R); n++; } return n ? norm360(Math.atan2(s, c) * R2D) : null; };
+const slice = (a, i, j) => a ? a.slice(i, j) : [];
+const cmean180 = a => { const v = cmean(a); return v == null ? null : norm180(v); };
+
+/* ---------------- analysis ---------------- */
+function analyse(S) {
+  const C = S.cols, N = S.N;
+  const moving = new Array(N).fill(false);
+  for (let i = 0; i < N; i++) moving[i] = (C.sogS?.[i] ?? 0) >= 1.0;
+  // close short gaps / remove short blips
+  fillRuns(moving, false, 20); fillRuns(moving, true, 15);
+  // maneuvers: heading change > 50 deg within 20 s while moving
+  const H = C.hdgS, man = [];
+  if (H) {
+    let i = 0;
+    while (i < N - 21) {
+      if (moving[i] && H[i] != null && H[i + 20] != null && Math.abs(norm180(H[i + 20] - H[i])) > 50) {
+        let a = i, b = i + 20;
+        while (a > 1 && H[a - 1] != null && Math.abs(norm180(H[a] - H[a - 1])) > 1.2 && i - a < 20) a--;
+        while (b < N - 2 && H[b + 1] != null && Math.abs(norm180(H[b + 1] - H[b])) > 1.2 && b - i < 60) b++;
+        man.push({ a, b }); i = b + 3;
+      } else i++;
+    }
+  }
+  const sp = i => (C.stw && C.stw[i] != null ? C.stw[i] : C.sog?.[i]) ?? null;
+  for (const m of man) {
+    const pre = [Math.max(0, m.a - 15), m.a], post = [m.b, Math.min(N, m.b + 15)];
+    m.h0 = cmean(slice(H, pre[0] + 5, pre[1])); m.h1 = cmean(slice(H, post[0], post[1] - 5));
+    m.turn = m.h0 != null && m.h1 != null ? norm180(m.h1 - m.h0) : null;
+    m.t0 = C.twa ? cmean180(slice(C.twa, pre[0] + 5, pre[1])) : null; m.t1 = C.twa ? cmean180(slice(C.twa, post[0], post[1] - 5)) : null;
+    m.v0 = mean(slice(C.stw || C.sog, pre[0], pre[1]));
+    let mn = Infinity; for (let k = m.a; k < Math.min(N, m.b + 10); k++) { const v = sp(k); if (v != null && v < mn) mn = v; } m.vmin = isFinite(mn) ? mn : null;
+    m.v1 = mean(slice(C.stw || C.sog, post[0], post[1]));
+    let rec = null; if (m.v0) for (let k = m.b; k < Math.min(N, m.b + 90); k++) { const v = sp(k); if (v != null && v >= m.v0 * 0.9) { rec = k - m.a; break; } } m.recover = rec;
+    // type
+    if (m.t0 != null && m.t1 != null && Math.sign(m.t0) !== Math.sign(m.t1) && Math.abs(m.t0) > 15 && Math.abs(m.t1) > 15) {
+      m.type = (Math.abs(m.t0) + Math.abs(m.t1)) / 2 < 90 ? 'tack' : 'gybe';
+    } else m.type = 'turn';
+    // VMG distance loss (m): baseline VMG 20 s before vs actual through end+15 s
+    if (C.vmg && m.type !== 'turn') {
+      const up = m.type === 'tack' ? 1 : -1;
+      const base = mean(slice(C.vmg, Math.max(0, m.a - 20), m.a)) * up;
+      let loss = 0; for (let k = m.a; k < Math.min(N, m.b + 15); k++) { const v = C.vmg[k]; if (v != null) loss += (base - v * up) * 0.514444; }
+      m.loss = loss;
+    }
+    m.rpm = C.rpm ? mean(slice(C.rpm, m.a, m.b)) : null;
+    m.heel0 = mean(slice(C.heel, pre[0], pre[1]).map(Math.abs));
+  }
+  // legs: moving stretches split by maneuvers, >= 30 s
+  const cuts = new Array(N).fill(false); for (const m of man) for (let k = m.a; k <= m.b && k < N; k++) cuts[k] = true;
+  const legs = []; let a = null;
+  for (let i = 0; i <= N; i++) {
+    const on = i < N && moving[i] && !cuts[i];
+    if (on && a == null) a = i;
+    if (!on && a != null) { if (i - a >= 30) legs.push({ a, b: i }); a = null; }
+  }
+  const dist = (i, j) => { let d = 0; for (let k = i + 1; k < j; k++) { if (C.lat?.[k] == null || C.lat[k - 1] == null) continue; d += hav(C.lat[k - 1], C.lon[k - 1], C.lat[k], C.lon[k]); } return d; };
+  for (const L of legs) {
+    const r = [L.a, L.b];
+    L.dist = dist(L.a, L.b); L.sog = mean(slice(C.sog, ...r)); L.stw = mean(slice(C.stw, ...r));
+    L.hdg = cmean(slice(C.hdg, ...r)); L.cog = cmean(slice(C.cog, ...r));
+    L.tws = mean(slice(C.tws, ...r)); L.twa = C.twa ? cmean180(slice(C.twa, ...r)) : null; L.twd = cmean(slice(C.twd, ...r)); L.busTwd = cmean(slice(C.busTwd, ...r));
+    L.heel = mean(slice(C.heel, ...r).map(v => v == null ? null : Math.abs(v))); L.rud = mean(slice(C.rud, ...r).map(v => v == null ? null : Math.abs(v)));
+    L.vmg = C.vmg ? mean(slice(C.vmg, ...r)) : null; L.ap = slice(S.ap, ...r).filter(Boolean).length / (L.b - L.a);
+    L.rpm = C.rpm ? mean(slice(C.rpm, ...r)) : null;
+    const at = L.twa == null ? null : Math.abs(L.twa);
+    L.pos = at == null ? null : at < 60 ? 'Kryss' : at < 100 ? 'Halvvind' : at < 150 ? 'Slör' : 'Läns';
+    L.tack = L.twa == null ? null : L.twa > 0 ? 'styrbord' : 'babord';
+    // propulsion
+    if (L.rpm != null) L.motor = L.rpm > 300 ? 'motor' : 'segel';
+    else if (at != null && at < 32 && (L.stw ?? L.sog) > 1.5) L.motor = 'motor?';
+    else if (L.heel != null && L.tws != null && L.tws > 7 && L.heel < 3 && at != null && at < 120) L.motor = 'motor?';
+    else if (L.heel != null && L.heel >= 4) L.motor = 'segel';
+    else L.motor = 'okänt';
+  }
+  for (const m of man) {
+    if (m.rpm != null) m.motor = m.rpm > 300; else m.motor = (m.v0 && m.vmin != null && m.vmin > 0.85 * m.v0 && m.type === 'tack') || (m.heel0 != null && m.heel0 < 3);
+  }
+  S.legs = legs; S.man = man; S.moving = moving;
+  // summary
+  const mi = moving.indexOf(true), ml = moving.lastIndexOf(true);
+  S.sum = {
+    underway: mi >= 0 ? [mi, ml] : null,
+    dist: C.lat ? dist(0, N) : null,
+    maxSog: C.sog ? Math.max(...C.sog.filter(v => v != null)) : null,
+    maxStw: C.stw ? Math.max(...C.stw.filter(v => v != null)) : null,
+    tws: C.tws ? mean(C.tws.filter((v, i) => moving[i])) : null,
+    twsMax: C.tws ? Math.max(0, ...C.tws.filter((v, i) => v != null && moving[i])) : null,
+    twd: C.twd ? cmean(C.twd.filter((v, i) => moving[i])) : null,
+    logDelta: C.log ? (lastNN(C.log) - firstNN(C.log)) : null,
+  };
+  const sailLegs = legs.filter(L => L.motor === 'segel'); const motorLegs = legs.filter(L => L.motor.startsWith('motor'));
+  S.sum.sailTime = sailLegs.reduce((s, L) => s + L.b - L.a, 0); S.sum.motorTime = motorLegs.reduce((s, L) => s + L.b - L.a, 0);
+  S.findings = findings(S);
+}
+function fillRuns(arr, val, maxLen) { const N = arr.length; let i = 0; while (i < N) { if (arr[i] === val) { let j = i; while (j < N && arr[j] === val) j++; if (i > 0 && j < N && j - i <= maxLen) for (let k = i; k < j; k++) arr[k] = !val; i = j; } else i++; } }
+const firstNN = a => a.find(v => v != null), lastNN = a => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+function hav(la1, lo1, la2, lo2) { const R = 6371000, p1 = la1 * D2R, p2 = la2 * D2R, dp = p2 - p1, dl = (lo2 - lo1) * D2R; const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); }
+
+/* ---------------- calibration & findings ---------------- */
+function calib(S) {
+  const C = S.cols; if (!C.stw || !C.hdg || !C.sog || !C.cog) return null;
+  const idx = [];
+  for (const L of S.legs) for (let i = L.a + 5; i < L.b - 5; i++) if (C.stw[i] > 1 && C.sog[i] > 1 && C.cog[i] != null && C.hdg[i] != null) idx.push(i);
+  if (idx.length < 60) return null;
+  // heading spread
+  const legsDir = S.legs.filter(L => L.b - L.a >= 45 && L.hdg != null).map(L => L.hdg);
+  let spread = 0; for (const a of legsDir) for (const b of legsDir) spread = Math.max(spread, Math.abs(norm180(a - b)));
+  if (spread < 100) return { spread, insufficient: true };
+  let best = null;
+  for (let off = -20; off <= 20; off += 0.25) {
+    // LS for k, cx, cy on vgx = k*stw*sin(h) + cx ; vgy = k*stw*cos(h) + cy
+    let Sxx = 0, Sx = 0, n = 0, Sxy = 0, Sy = 0; let sgx = 0, sgy = 0;
+    const rows = [];
+    for (const i of idx) {
+      const h = (C.hdg[i] + off) * D2R, s = C.stw[i];
+      const ux = s * Math.sin(h), uy = s * Math.cos(h);
+      const gx = C.sog[i] * Math.sin(C.cog[i] * D2R), gy = C.sog[i] * Math.cos(C.cog[i] * D2R);
+      rows.push([ux, uy, gx, gy]);
+    }
+    // normal equations for [k, cx, cy]
+    let A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], B = [0, 0, 0];
+    for (const [ux, uy, gx, gy] of rows) {
+      // eq1: k*ux + cx = gx ; eq2: k*uy + cy = gy
+      A[0][0] += ux * ux + uy * uy; A[0][1] += ux; A[0][2] += uy; A[1][1] += 1; A[2][2] += 1;
+      B[0] += ux * gx + uy * gy; B[1] += gx; B[2] += gy;
+    }
+    A[1][0] = A[0][1]; A[2][0] = A[0][2];
+    const x = solve3(A, B); if (!x) continue;
+    let res = 0; for (const [ux, uy, gx, gy] of rows) res += (x[0] * ux + x[1] - gx) ** 2 + (x[0] * uy + x[2] - gy) ** 2;
+    if (!best || res < best.res) best = { off, k: x[0], cx: x[1], cy: x[2], res };
+  }
+  if (!best) return null;
+  best.cur = Math.hypot(best.cx, best.cy); best.curDir = norm360(Math.atan2(best.cx, best.cy) * R2D);
+  best.rms = Math.sqrt(best.res / (2 * idx.length)); best.spread = spread; best.n = idx.length;
+  return best;
+}
+function solve3(A, B) {
+  const m = A.map((r, i) => [...r, B[i]]);
+  for (let c = 0; c < 3; c++) { let p = c; for (let r = c + 1; r < 3; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r; [m[c], m[p]] = [m[p], m[c]]; if (Math.abs(m[c][c]) < 1e-9) return null; for (let r = 0; r < 3; r++) if (r !== c) { const f = m[r][c] / m[c][c]; for (let k = c; k < 4; k++) m[r][k] -= f * m[c][k]; } }
+  return [m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]];
+}
+function findings(S) {
+  const C = S.cols, F = [], legs = S.legs;
+  const nf = (v, d = 1) => v == null ? '–' : v.toFixed(d).replace('.', ',');
+  const dg = v => v == null ? '–' : Math.round(norm360(v)) + '°';
+  // propulsion
+  const sail = S.sum.sailTime, mot = S.sum.motorTime, tot = legs.reduce((s, L) => s + L.b - L.a, 0);
+  if (tot > 0) {
+    if (C.rpm) F.push({ lvl: 'info', tag: 'Framdrivning', title: mot > sail ? 'Mest motorgång' : 'Mest segling', big: `${Math.round(sail / 60)} / ${Math.round(mot / 60)} min`, text: `Motorvarvtal finns i loggen. Seglade sträckor: ${Math.round(sail / 60)} min. Motorsträckor: ${Math.round(mot / 60)} min.` });
+    else if (mot > sail) F.push({ lvl: 'info', tag: 'Framdrivning', title: 'Troligen motorgång', text: `Motorvarvtal saknas i loggen, så det här är en bedömning. Krängningen var låg för vindstyrkan och båten gick för högt mot vinden för att segla (sann vindvinkel ner mot ${Math.round(Math.min(...legs.filter(L => L.twa != null).map(L => Math.abs(L.twa))))}°). Polar, målfarter och förlust per slag räknas bara på seglade sträckor.` });
+    else F.push({ lvl: 'info', tag: 'Framdrivning', title: 'Seglad tur', text: `${Math.round(sail / 60)} min bedöms som segling utifrån krängning och vindvinklar. Sträckor som ser ut att vara motorgång räknas inte in i polar och slagförluster.` });
+  }
+  // log / compass calibration
+  const cal = calib(S); S.calib = cal;
+  if (cal && !cal.insufficient) {
+    const pct = (cal.k - 1) * 100;
+    F.push({ lvl: Math.abs(pct) > 4 ? 'warn' : 'good', tag: 'Logg', title: Math.abs(pct) > 4 ? `Loggen visar ${nf(Math.abs(pct), 0)} % för ${pct > 0 ? 'lite' : 'mycket'}` : 'Loggen stämmer bra', big: '×' + nf(cal.k, 2), text: `Anpassning av STW och kompasskurs mot GPS över ${Math.round(cal.n / 60)} min rak gång i olika riktningar. Kalibreringsfaktor ${nf(cal.k, 2)}, ström ${nf(cal.cur, 2)} kn mot ${dg(cal.curDir)}.${S.sum.logDelta && S.sum.dist ? ` Loggräknaren gick ${Math.round(S.sum.logDelta)} m medan GPS-spåret är ${Math.round(S.sum.dist)} m.` : ''}` });
+    const v = S.meta.var;
+    F.push({ lvl: Math.abs(cal.off) > 4 ? 'warn' : 'good', tag: 'Kompass', title: Math.abs(cal.off) > 4 ? `Kompassen avviker ${nf(Math.abs(cal.off), 1)}° från GPS` : 'Kompass och GPS stämmer', big: (cal.off > 0 ? '+' : '−') + nf(Math.abs(cal.off), 1) + '°', text: `Den vinkel som bäst får kurs + fart genom vattnet att stämma med COG + SOG. Den innehåller missvisning, deviation och genomsnittlig avdrift.${v != null ? ` Missvisningen på nätet är ${nf(v, 1)}°${Math.abs(v) < 0.05 ? ', vilket ser ut som ett manuellt nollvärde. Sätt den till automatisk' : ''}.` : ' Ingen missvisning skickas på nätet.'}` });
+  } else if (cal && cal.insufficient) {
+    F.push({ lvl: 'info', tag: 'Logg', title: 'För få riktningar för kalibrering', text: 'Logg- och kompasskontrollen kräver raka sträckor i minst två riktningar som skiljer över 100°. Kör en sträcka fram och tillbaka nästa gång.' });
+  }
+  // wind: bus ground TWD vs computed
+  const pairs = legs.filter(L => L.busTwd != null && L.twd != null && L.b - L.a >= 40);
+  if (pairs.length >= 2) {
+    const diffs = pairs.map(L => norm180(L.busTwd - L.twd)); const spreadBus = Math.max(...pairs.map(L => L.busTwd)).valueOf();
+    const maxd = Math.max(...diffs.map(Math.abs));
+    if (maxd > 12) {
+      const a = pairs.reduce((p, L) => Math.abs(norm180(L.busTwd - L.twd)) > Math.abs(norm180(p.busTwd - p.twd)) ? L : p);
+      F.push({ lvl: 'crit', tag: 'Vind', title: 'Vindriktningen på nätet stämmer inte', big: `${Math.round(maxd)}°`, text: `Vindgivarens markvind (PGN 130306, markreferens) skiljer upp till ${Math.round(maxd)}° från den vindriktning som räknas fram ur skenbar vind, fart och kurs. Den framräknade riktningen är ${pairs.map(L => dg(L.twd)).join(', ')} på de längre sträckorna, medan nätet visar ${pairs.map(L => dg(L.busTwd)).join(', ')}. Sidan visar den framräknade.` });
+    } else F.push({ lvl: 'good', tag: 'Vind', title: 'Vindriktningen på nätet stämmer', text: `Markvinden från nätet ligger inom ${Math.round(maxd)}° från den framräknade på alla längre sträckor.` });
+  }
+  // TWD stability across opposite legs (computed)
+  const up = legs.filter(L => L.twa != null && Math.abs(L.twa) < 70 && L.b - L.a >= 40), dn = legs.filter(L => L.twa != null && Math.abs(L.twa) > 110 && L.b - L.a >= 40);
+  if (up.length && dn.length) {
+    const tu = mean(up.map(L => L.tws)), td = mean(dn.map(L => L.tws));
+    const d = tu - td;
+    F.push({ lvl: Math.abs(d) > 1.5 ? 'warn' : 'good', tag: 'Vindstyrka', title: Math.abs(d) > 1.5 ? `Sann vind ${nf(Math.abs(d), 1)} kn ${d > 0 ? 'högre' : 'lägre'} på kryss än på läns` : 'Sann vind lika på kryss och läns', text: `Kryss ${nf(tu, 1)} kn, läns/slör ${nf(td, 1)} kn. En logg som visar för lite eller en okalibrerad vindgivare höjer sann vind på kryss och sänker den på läns. Byar under turen kan också ge skillnad.` });
+  }
+  const tackLegs = legs.filter(L => L.motor === 'segel' && L.twa != null && Math.abs(L.twa) < 70 && L.b - L.a >= 40);
+  const sb = tackLegs.filter(L => L.twa > 0), bb = tackLegs.filter(L => L.twa < 0);
+  if (sb.length && bb.length) {
+    const as = mean(sb.map(L => L.twa)), ab = mean(bb.map(L => -L.twa));
+    if (Math.abs(as - ab) > 4) F.push({ lvl: 'warn', tag: 'Vindvinkel', title: `Kryssvinkeln skiljer ${nf(Math.abs(as - ab), 0)}° mellan bogarna`, text: `Styrbords halsar ${nf(as, 0)}°, babords halsar ${nf(ab, 0)}°. Om båten seglades likadant på båda bogarna tyder det på en AWA-offset i vindgivaren (mast eller givare inte rakt).` });
+  }
+  // depth
+  if (S.depthStats.total > 20) {
+    const r = S.depthStats.bad / S.depthStats.total;
+    if (r > 0.02) F.push({ lvl: 'info', tag: 'Djup', title: 'Falska ekon i djupet', big: Math.round(r * 100) + ' %', text: `${S.depthStats.bad} av ${S.depthStats.total} djupvärden var orimligt stora jämfört med omgivande värden och är bortfiltrerade. Det är vanligt i grunda hamnar med propellerström.${S.meta.depthOffset != null ? ` Djupoffset på nätet: ${nf(S.meta.depthOffset, 2)} m.` : ''}` });
+    const minDep = Math.min(...C.dep.filter((v, i) => v != null && S.moving[i]));
+    if (isFinite(minDep)) { const i = C.dep.findIndex((v, k) => v === minDep && S.moving[k]); F.push({ lvl: minDep < 2.5 ? 'warn' : 'info', tag: 'Djup', title: `Minsta djup under gång ${nf(minDep, 1)} m`, text: `Uppmätt vid ${G.YD.fmtTime(S, i)}. Djupet visas som givaren rapporterar det${S.meta.depthOffset ? ', med nätets offset' : ''}.` }); }
+  }
+  // autopilot
+  if (C.mode && S.ap.some(Boolean)) {
+    const errs = []; let rudA = [];
+    for (let i = 0; i < S.N; i++) if (S.ap[i] && C.lock[i] != null && C.hdg[i] != null) { errs.push(norm180(C.hdg[i] - C.lock[i])); if (C.rud) rudA.push(Math.abs(C.rud[i] ?? 0)); }
+    const good = errs.filter(e => Math.abs(e) < 5);
+    const sd = good.length ? Math.sqrt(mean(good.map(e => e * e))) : null;
+    F.push({ lvl: sd != null && sd < 3 ? 'good' : 'info', tag: 'Autopilot', title: sd != null ? `Piloten höll kursen inom ±${nf(sd * 2, 1)}°` : 'Autopilot i bruk', big: sd != null ? '±' + nf(sd * 2, 1) + '°' : null, text: `Auto i ${Math.round(S.ap.filter(Boolean).length / 60)} min. ${good.length ? `Kursfel (2 standardavvikelser) mot inställd kurs när piloten låg stabilt, medelroder ${nf(mean(rudA), 1)}°.` : 'Inställd kurs saknas på nätet.'}` });
+  }
+  // maneuvers
+  const sailed = S.man.filter(m => m.type !== 'turn' && !m.motor && m.loss != null);
+  if (sailed.length) {
+    const tk = sailed.filter(m => m.type === 'tack'), gy = sailed.filter(m => m.type === 'gybe');
+    F.push({ lvl: 'info', tag: 'Manövrer', title: `${tk.length} slag, ${gy.length} gippar`, big: tk.length ? nf(mean(tk.map(m => m.loss)), 0) + ' m' : null, text: `${tk.length ? `Slag förlorade i snitt ${nf(mean(tk.map(m => m.loss)), 0)} m mot VMG innan (bästa ${nf(Math.min(...tk.map(m => m.loss)), 0)} m, sämsta ${nf(Math.max(...tk.map(m => m.loss)), 0)} m). ` : ''}${gy.length ? `Gippar förlorade i snitt ${nf(mean(gy.map(m => m.loss)), 0)} m. ` : ''}Förlusten räknas som skillnaden mot VMG de 20 sekunderna före manövern, fram till 15 sekunder efter.` });
+  }
+  // VMG summary
+  const sl = legs.filter(L => L.motor === 'segel' && L.vmg != null);
+  const u = sl.filter(L => L.pos === 'Kryss'), d = sl.filter(L => L.pos === 'Läns' || L.pos === 'Slör');
+  if (u.length || d.length) F.push({ lvl: 'info', tag: 'VMG', title: 'VMG på seglade sträckor', text: `${u.length ? `Kryss: ${nf(mean(u.map(L => L.vmg)), 2)} kn vid TWA ${nf(mean(u.map(L => Math.abs(L.twa))), 0)}°. ` : ''}${d.length ? `Undanvind: ${nf(-mean(d.map(L => L.vmg)), 2)} kn vid TWA ${nf(mean(d.map(L => Math.abs(L.twa))), 0)}°.` : ''}` });
+  return F;
+}
+
+/* ---------------- exports ---------------- */
+function toCSV(S) {
+  const C = S.cols, keys = ['lat', 'lon', 'sog', 'cog', 'stw', 'hdg', 'aws', 'awa', 'tws', 'twa', 'twd', 'dep', 'heel', 'rud', 'rpm'];
+  const have = keys.filter(k => C[k]);
+  const rows = ['time_utc,' + have.join(',') + ',autopilot'];
+  for (let i = 0; i < S.N; i++) rows.push(new Date(S.t0 + i * 1000).toISOString() + ',' + have.map(k => C[k][i] == null ? '' : (+C[k][i].toFixed(k === 'lat' || k === 'lon' ? 6 : 2))).join(',') + ',' + (S.ap[i] ? 1 : 0));
+  return rows.join('\n');
+}
+function toGPX(S) {
+  const C = S.cols; let s = '<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="YDVR-analys" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>YDVR ' + new Date(S.t0).toISOString().slice(0, 10) + '</name><trkseg>\n';
+  for (let i = 0; i < S.N; i += 2) if (C.lat?.[i] != null) s += `<trkpt lat="${C.lat[i].toFixed(6)}" lon="${C.lon[i].toFixed(6)}"><time>${new Date(S.t0 + i * 1000).toISOString()}</time></trkpt>\n`;
+  return s + '</trkseg></trk></gpx>\n';
+}
+function fmtTime(S, i) { return new Date(S.t0 + i * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+
+G.YD = { parseYDVR, DEC, buildSeries, toCSV, toGPX, fmtTime, norm180, norm360, mean, cmean };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>(function () {
+'use strict';
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const nf = (v, d = 1) => v == null || isNaN(v) ? '–' : v.toFixed(d).replace('.', ',').replace('-', '−');
+const deg = v => v == null ? '–' : String(Math.round(YD.norm360(v)) % 360).padStart(3, '0') + '°';
+const sgn = v => v == null ? '–' : (v > 0.5 ? '+' : v < -0.5 ? '−' : '') + Math.abs(Math.round(v)) + '°';
+const el = (t, a, p) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; };
+const dark = () => matchMedia('(prefers-color-scheme: dark)').matches;
+let S = null, idx = 0, map = null, layers = {}, colorMode = 'speed';
+const CH = [];
+
+/* ---------- file loading ---------- */
+const drop = $('drop'), fileIn = $('fileIn');
+['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => load([...ev.dataTransfer.files]));
+fileIn.addEventListener('change', () => load([...fileIn.files]));
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { if (!drop.contains(e.target)) { e.preventDefault(); if (!$('landing').hidden) load([...e.dataTransfer.files]); } });
+$('btnNew').addEventListener('click', showLanding);
+function showLanding() { if (location.search) history.replaceState(null, '', location.pathname); stop(); $('app').hidden = true; $('topActions').hidden = true; $('landing').hidden = false; fileIn.value = ''; $('fileList').textContent = ''; $('err').hidden = true; renderLibrary(); window.scrollTo(0, 0); }
+
+/* ---------- trip library: local (IndexedDB) + cloud (Supabase) ---------- */
+let CUR = null; // {id|null, src:'local'|'cloud'|null, name, files:[{name,buf}], shared:bool}
+const CFG = window.KOLVATTEN_CONFIG || {};
+let sb = null, user = null;
+if (CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase && !/DITT-PROJEKT|XXXX/.test(CFG.supabaseUrl)) {
+  try { sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { flowType: 'implicit', persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } }); }
+  catch (e) { console.error(e); sb = null; }
+}
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
+const rnd = () => Math.random().toString(36).slice(2, 10);
+
+/* packing: KOLV1 container, gzip when the browser supports it */
+async function pack(files, name) {
+  const enc = new TextEncoder();
+  const head = enc.encode(JSON.stringify({ v: 1, name: name || null, files: files.map(f => ({ name: f.name, size: f.buf.byteLength })) }));
+  const len = new Uint8Array(4); new DataView(len.buffer).setUint32(0, head.length, true);
+  let blob = new Blob([enc.encode('KOLV1\n'), len, head, ...files.map(f => new Uint8Array(f.buf))]);
+  if ('CompressionStream' in window) blob = await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  return blob;
+}
+async function unpack(blob) {
+  const sig = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+  if (sig[0] === 0x1f && sig[1] === 0x8b) {
+    if (!('DecompressionStream' in window)) throw new Error('Webbläsaren är för gammal för att packa upp turen. Uppdatera den och försök igen.');
+    blob = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).blob();
+  }
+  const ab = await blob.arrayBuffer(), u = new Uint8Array(ab), dec = new TextDecoder();
+  if (dec.decode(u.subarray(0, 6)) === 'KOLV1\n') {
+    const n = new DataView(ab).getUint32(6, true), meta = JSON.parse(dec.decode(u.subarray(10, 10 + n)));
+    let o = 10 + n; const files = meta.files.map(f => { const b = ab.slice(o, o + f.size); o += f.size; return { name: f.name, buf: b }; });
+    return { name: meta.name, files };
+  }
+  let j = null; try { j = JSON.parse(dec.decode(u)); } catch (e) {}
+  if (j && j.kolvatten === 1 && Array.isArray(j.files)) return { name: j.name, files: j.files.map(x => { const bin = atob(x.b64), b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return { name: x.name, buf: b.buffer }; }) };
+  throw new Error('Filen är ingen giltig Kölvatten-fil.');
+}
+
+/* local store */
+const LOCAL = (() => {
+  let p = null;
+  const open = () => p || (p = new Promise((res, rej) => {
+    if (!('indexedDB' in window)) return rej(new Error('no-idb'));
+    const r = indexedDB.open('kolvatten', 1);
+    r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('trips')) db.createObjectStore('trips', { keyPath: 'id' }); if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' }); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const tx = async (stores, mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction(stores, mode); let out; Promise.resolve(fn(t)).then(v => out = v); t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('abort')); }); };
+  const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  return {
+    list: async () => (await tx(['trips'], 'readonly', t => req(t.objectStore('trips').getAll()))).map(t => ({ ...t, src: 'local' })),
+    load: id => tx(['trips', 'files'], 'readonly', async t => { const trip = await req(t.objectStore('trips').get(id)); const f = await req(t.objectStore('files').get(id)); return trip && f ? { ...trip, files: f.files } : null; }),
+    save: async (sum, name, files) => { const id = 'l' + Date.now().toString(36) + rnd().slice(0, 4); await tx(['trips', 'files'], 'readwrite', t => { t.objectStore('trips').put({ id, name, saved: Date.now(), ...sum }); t.objectStore('files').put({ id, files: files.map(f => ({ name: f.name, buf: f.buf })) }); }); try { navigator.storage?.persist?.(); } catch (e) {} return id; },
+    rename: (trip, name) => tx(['trips'], 'readwrite', async t => { const s = t.objectStore('trips'); const x = await req(s.get(trip.id)); if (x) { x.name = name; s.put(x); } }),
+    del: trip => tx(['trips', 'files'], 'readwrite', t => { t.objectStore('trips').delete(trip.id); t.objectStore('files').delete(trip.id); }),
+  };
+})();
+
+/* cloud store */
+const CLOUD = {
+  row2trip: r => ({ id: r.id, src: 'cloud', name: r.name, path: r.path, t0: Date.parse(r.t0), under: r.under_sec || 0, dist: r.dist_m || 0, maxSog: r.max_sog, tws: r.tws, bytes: r.bytes || 0, shared: !!r.share_url }),
+  list: async () => { const { data, error } = await sb.from('trips').select('*').order('t0', { ascending: false }); if (error) throw error; return data.map(CLOUD.row2trip); },
+  load: async id => {
+    const { data: r, error } = await sb.from('trips').select('*').eq('id', id).single(); if (error) throw error;
+    const { data: blob, error: e2 } = await sb.storage.from('trips').download(r.path); if (e2) throw e2;
+    const u = await unpack(blob); return { ...CLOUD.row2trip(r), files: u.files };
+  },
+  save: async (sum, name, files) => {
+    const id = uid(), path = `${user.id}/${id}-${rnd()}.kolv`;
+    const blob = await pack(files, name);
+    const { error } = await sb.storage.from('trips').upload(path, blob, { contentType: 'application/octet-stream', upsert: false }); if (error) throw error;
+    const row = { id, name, path, t0: new Date(sum.t0).toISOString(), t1: new Date(sum.t1).toISOString(), under_sec: sum.under, dist_m: sum.dist, max_sog: sum.maxSog, tws: sum.tws, bytes: blob.size, nfiles: sum.nfiles };
+    const { error: e2 } = await sb.from('trips').insert(row);
+    if (e2) { await sb.storage.from('trips').remove([path]); throw e2; }
+    return id;
+  },
+  rename: async (trip, name) => { const { error } = await sb.from('trips').update({ name }).eq('id', trip.id); if (error) throw error; },
+  del: async trip => { await sb.storage.from('trips').remove([trip.path]); const { error } = await sb.from('trips').delete().eq('id', trip.id); if (error) throw error; },
+  share: async trip => {
+    const { data, error } = await sb.storage.from('trips').createSignedUrl(trip.path, 60 * 60 * 24 * 365 * 5); if (error) throw error;
+    const { error: e2 } = await sb.from('trips').update({ share_url: data.signedUrl }).eq('id', trip.id); if (e2) throw e2;
+    return shareLink(trip.id);
+  },
+  unshare: async trip => {
+    // move the file so the old signed link stops working
+    const np = `${user.id}/${trip.id}-${rnd()}.kolv`;
+    const { error } = await sb.storage.from('trips').move(trip.path, np); if (error) throw error;
+    const { error: e2 } = await sb.from('trips').update({ path: np, share_url: null }).eq('id', trip.id); if (e2) throw e2;
+  },
+  openShared: async id => {
+    const { data, error } = await sb.rpc('get_shared_trip', { trip_id: id }); if (error) throw error;
+    const r = Array.isArray(data) ? data[0] : data; if (!r || !r.share_url) throw new Error('Den delade turen finns inte längre, eller så har ägaren slutat dela den.');
+    const res = await fetch(r.share_url); if (!res.ok) throw new Error('Den delade turen kunde inte hämtas. Ägaren kan ha slutat dela den.');
+    const u = await unpack(await res.blob()); return { name: r.name, files: u.files };
+  },
+};
+const shareLink = id => location.origin + location.pathname + '?tur=' + id;
+const store = src => src === 'cloud' ? CLOUD : LOCAL;
+
+/* ---------- auth UI ---------- */
+function setAuthUI() {
+  const box = $('auth');
+  if (!sb) { box.hidden = true; return; }
+  box.hidden = false;
+  $('authIn').hidden = !user; $('authOut').hidden = !!user;
+  if (user) $('authWho').textContent = user.email || 'Inloggad';
+  $('libLocalNote').hidden = !!user;
+  $('libCloudNote').hidden = !user;
+  $('howStore').innerHTML = user ? '<b>Sparat i molnet</b><p>Dina sparade turer följer med ditt konto och syns på alla enheter där du loggar in. Filerna läses och analyseras i webbläsaren.</p>' : '<b>Din data, ditt val</b><p>Filerna analyseras i webbläsaren. Spara turer i webbläsaren, eller logga in för att spara dem i molnet och dela dem med en länk.</p>';
+}
+if (sb) {
+  $('btnLogin').addEventListener('click', () => { $('loginBox').hidden = !$('loginBox').hidden; if (!$('loginBox').hidden) $('loginEmail').focus(); });
+  $('loginBox').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('loginEmail').value.trim(); if (!email) return;
+    $('loginMsg').textContent = 'Skickar …'; $('loginSend').disabled = true;
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+    $('loginSend').disabled = false;
+    $('loginMsg').textContent = error ? 'Det gick inte att skicka länken: ' + error.message : 'Kolla din e-post och klicka på länken. Du loggas in i den webbläsare där du öppnar länken.';
+  });
+  $('btnLogout').addEventListener('click', async () => { await sb.auth.signOut(); });
+  sb.auth.onAuthStateChange((ev, session) => {
+    const was = user?.id; user = session?.user || null;
+    setAuthUI(); if (!$('loginBox').hidden && user) $('loginBox').hidden = true;
+    if (was !== user?.id) { if (!$('landing').hidden) renderLibrary(); else if (CUR) setSaveUI(); }
+  });
+  sb.auth.getSession().then(({ data }) => { user = data.session?.user || null; setAuthUI(); renderLibrary(); if (CUR) setSaveUI(); });
+} else setAuthUI();
+
+/* ---------- save bar ---------- */
+function tripSummary() {
+  const uw = S.sum.underway;
+  return { t0: S.t0, t1: S.t0 + (S.N - 1) * 1000, under: uw ? uw[1] - uw[0] : 0, dist: S.sum.dist || 0, maxSog: S.sum.maxSog, tws: S.sum.tws, nfiles: CUR.files.length, bytes: CUR.files.reduce((a, f) => a + f.buf.byteLength, 0) };
+}
+function defaultName() {
+  const d = new Date(S.t0); const uw = S.sum.underway;
+  return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) + (uw ? `, ${Math.round((uw[1] - uw[0]) / 60)} min` : '');
+}
+function setSaveUI() {
+  const saved = !!CUR.id;
+  $('tripName').value = CUR.name || defaultName();
+  $('btnSave').textContent = saved ? 'Spara namn' : CUR.shared ? 'Spara kopia' : 'Spara tur';
+  $('btnSave').disabled = saved;
+  $('saveMsg').textContent = saved ? (CUR.src === 'cloud' ? 'Sparad i molnet.' : 'Sparad i den här webbläsaren.') : CUR.shared ? 'Delad tur. Spara en egen kopia om du vill ha kvar den.' : (user ? 'Inte sparad än. Sparas i molnet.' : sb ? 'Inte sparad än. Sparas i den här webbläsaren, eller logga in för att spara i molnet.' : 'Inte sparad än.');
+  const sh = $('btnShare'); sh.hidden = !(saved && CUR.src === 'cloud');
+}
+$('tripName').addEventListener('input', () => { if (CUR?.id) { $('btnSave').disabled = $('tripName').value.trim() === CUR.name; $('saveMsg').textContent = 'Namnet är ändrat men inte sparat.'; } });
+$('tripName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); if (!$('btnSave').disabled) saveCurrent(); } });
+$('btnSave').addEventListener('click', () => saveCurrent());
+async function saveCurrent() {
+  const name = $('tripName').value.trim() || defaultName();
+  $('btnSave').disabled = true; $('saveMsg').textContent = 'Sparar …';
+  try {
+    if (CUR.id) await store(CUR.src).rename(CUR, name);
+    else { const src = user ? 'cloud' : 'local'; CUR.id = await store(src).save(tripSummary(), name, CUR.files); CUR.src = src; CUR.shared = false; }
+    CUR.name = name; $('hTitle').textContent = name; setSaveUI();
+    $('saveMsg').textContent = CUR.src === 'cloud' ? 'Sparad i molnet. Du hittar den under Mina turer på alla enheter.' : 'Sparad i den här webbläsaren. Du hittar den under Mina turer.';
+  } catch (e) {
+    console.error(e); $('btnSave').disabled = false;
+    const m = String(e?.name || '') + ' ' + String(e?.message || e);
+    $('saveMsg').textContent = /quota|exceed|size/i.test(m) ? 'Det finns inte plats. Ta bort gamla turer och försök igen.' : /jwt|auth|401|403|row-level/i.test(m) ? 'Inloggningen har gått ut. Logga in igen och spara.' : /no-idb/.test(m) ? 'Webbläsaren tillåter inte lagring (t.ex. privat läge).' : 'Kunde inte spara: ' + (e?.message || e);
+  }
+}
+$('btnExport').addEventListener('click', async () => {
+  const name = ($('tripName').value.trim() || defaultName());
+  save(name.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_') + '.kolvatten', await pack(CUR.files, name), 'application/octet-stream');
+});
+$('btnShare').addEventListener('click', () => shareDialog({ ...CUR, path: CUR.path }, $('shareBox')));
+async function shareDialog(trip, box) {
+  box.hidden = false; box.innerHTML = '<span class="note">Hämtar …</span>';
+  try {
+    if (!trip.path) { const l = await CLOUD.list(); const t = l.find(x => x.id === trip.id); trip.path = t.path; trip.shared = t.shared; }
+    const draw = link => {
+      box.innerHTML = link
+        ? `<span class="note">Alla med länken kan se turen, utan att logga in.</span><div class="saverow"><input type="text" readonly aria-label="Delningslänk"><button class="btn primary sm" type="button" data-a="copy">Kopiera</button><button class="btn sm" type="button" data-a="stop">Sluta dela</button></div>`
+        : `<span class="note">Skapa en länk som vem som helst kan öppna, utan konto. Du kan sluta dela när du vill.</span><div class="saverow"><button class="btn primary sm" type="button" data-a="make">Skapa delningslänk</button><button class="btn sm" type="button" data-a="close">Stäng</button></div>`;
+      const inp = box.querySelector('input'); if (inp) { inp.value = link; inp.id = 'share_' + trip.id; }
+      box.querySelector('[data-a=copy]')?.addEventListener('click', async e => { try { await navigator.clipboard.writeText(link); e.target.textContent = 'Kopierad'; } catch (x) { inp.select(); } });
+      box.querySelector('[data-a=stop]')?.addEventListener('click', async () => { box.innerHTML = '<span class="note">Stänger länken …</span>'; await CLOUD.unshare(trip); const l = await CLOUD.list(); trip.path = l.find(x => x.id === trip.id)?.path; if (CUR && CUR.id === trip.id) CUR.path = trip.path; draw(null); });
+      box.querySelector('[data-a=make]')?.addEventListener('click', async () => { box.innerHTML = '<span class="note">Skapar länk …</span>'; draw(await CLOUD.share(trip)); });
+      box.querySelector('[data-a=close]')?.addEventListener('click', () => { box.hidden = true; });
+    };
+    draw(trip.shared ? shareLink(trip.id) : null);
+  } catch (e) { box.innerHTML = '<span class="note">Kunde inte dela: ' + (e.message || e) + '</span>'; }
+}
+
+/* ---------- library list ---------- */
+async function renderLibrary() {
+  const box = $('library'), ul = $('libList');
+  let list = [], local = [], err = null;
+  try { local = await LOCAL.list(); } catch (e) { local = []; }
+  if (sb && user) { try { list = await CLOUD.list(); } catch (e) { err = e; } }
+  list = list.concat(local).sort((a, b) => b.t0 - a.t0);
+  box.hidden = !list.length && !err && !(sb && user);
+  ul.innerHTML = '';
+  if (err) ul.innerHTML = `<li class="trip"><span class="note">Kunde inte hämta turer från molnet: ${err.message || err}</span></li>`;
+  if (!list.length && sb && user && !err) ul.innerHTML = '<li class="trip"><span class="note">Inga sparade turer än. Släpp loggfilerna ovan och klicka Spara tur.</span></li>';
+  $('libCount').textContent = list.length ? list.length + (list.length === 1 ? ' tur' : ' turer') + ' · ' + nf(list.reduce((a, t) => a + (t.bytes || 0), 0) / 1048576, 1) + ' MB' : '';
+  for (const t of list) {
+    const li = document.createElement('li'); li.className = 'trip';
+    const d = new Date(t.t0);
+    li.innerHTML = `<button class="trip-open" type="button"><span class="trip-name"></span><span class="trip-meta">${d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })} · ${d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })} · ${Math.round(t.under / 60)} min · ${nf(t.dist / 1852, 1)} M${t.maxSog ? ' · max ' + nf(t.maxSog, 1) + ' kn' : ''}${t.tws ? ' · vind ' + nf(t.tws, 0) + ' kn' : ''}</span></button>
+      <div class="trip-act"></div><div class="sharebox" hidden></div>`;
+    const nm = li.querySelector('.trip-name'); nm.textContent = t.name;
+    if (sb && user && t.src === 'local') nm.insertAdjacentHTML('beforeend', '<span class="badge">i webbläsaren</span>');
+    if (t.shared) nm.insertAdjacentHTML('beforeend', '<span class="badge">delad</span>');
+    li.querySelector('.trip-open').onclick = () => openTrip(t);
+    const act = li.querySelector('.trip-act'), sbx = li.querySelector('.sharebox');
+    const buttons = () => {
+      act.innerHTML = (t.src === 'cloud' ? '<button class="btn sm" data-a="share" type="button">Dela</button>' : (sb && user ? '<button class="btn sm" data-a="up" type="button">Flytta till molnet</button>' : '')) + '<button class="btn sm" data-a="ren" type="button">Byt namn</button><button class="btn sm" data-a="del" type="button">Ta bort</button>';
+      act.querySelector('[data-a=share]')?.addEventListener('click', () => shareDialog(t, sbx));
+      act.querySelector('[data-a=up]')?.addEventListener('click', async () => {
+        act.innerHTML = '<span class="note">Laddar upp …</span>';
+        try { const full = await LOCAL.load(t.id); await CLOUD.save({ t0: t.t0, t1: t.t1 || t.t0, under: t.under, dist: t.dist, maxSog: t.maxSog, tws: t.tws, nfiles: full.files.length }, t.name, full.files); await LOCAL.del(t); renderLibrary(); }
+        catch (e) { act.innerHTML = `<span class="note">Uppladdningen misslyckades: ${e.message || e}</span>`; setTimeout(buttons, 4000); }
+      });
+      act.querySelector('[data-a=ren]').onclick = () => {
+        act.innerHTML = '<input class="ren" type="text" aria-label="Nytt namn"><button class="btn sm primary" type="button">Spara</button><button class="btn sm" type="button">Avbryt</button>';
+        const inp = act.querySelector('input'); inp.value = t.name; inp.id = 'ren_' + t.id; inp.focus(); inp.select();
+        const [ok, no] = act.querySelectorAll('button');
+        const doSave = async () => { const n = inp.value.trim(); if (n) { await store(t.src).rename(t, n); } renderLibrary(); };
+        ok.onclick = doSave; no.onclick = buttons; inp.onkeydown = e => { if (e.key === 'Enter') doSave(); if (e.key === 'Escape') buttons(); };
+      };
+      act.querySelector('[data-a=del]').onclick = () => {
+        act.innerHTML = '<span class="note">Ta bort för gott?</span><button class="btn sm danger" type="button">Ta bort</button><button class="btn sm" type="button">Avbryt</button>';
+        const [ok, no] = act.querySelectorAll('button'); ok.onclick = async () => { await store(t.src).del(t); renderLibrary(); }; no.onclick = buttons; ok.focus();
+      };
+    };
+    buttons();
+    ul.appendChild(li);
+  }
+}
+async function openTrip(t) {
+  $('err').hidden = true; const prog = $('prog'); prog.hidden = false; prog.firstElementChild.style.width = '3%';
+  try { const full = await store(t.src).load(t.id); if (!full) throw new Error('Turen hittades inte längre.'); await analyse(full.files, { id: t.id, src: t.src, name: t.name, path: full.path }); }
+  catch (e) { prog.hidden = true; showErr(e.message || String(e)); }
+}
+async function openSharedFromUrl() {
+  const id = new URLSearchParams(location.search).get('tur'); if (!id) return false;
+  if (!sb) { showErr('Delade turer kräver att sidan är kopplad till en databas.'); return true; }
+  const prog = $('prog'); prog.hidden = false; prog.firstElementChild.style.width = '3%';
+  try { const r = await CLOUD.openShared(id); await analyse(r.files, { id: null, src: null, name: r.name, shared: true }); }
+  catch (e) { prog.hidden = true; showErr(e.message || String(e)); }
+  return true;
+}
+
+async function load(list) {
+  $('err').hidden = true;
+  const bundles = list.filter(f => /\.kolvatten$/i.test(f.name));
+  const files = list.filter(f => /\.dat$/i.test(f.name));
+  if (!files.length && !bundles.length) { showErr('Välj .DAT-filer från YDVR-04 eller en sparad .kolvatten-fil. Andra filtyper kan inte läsas.'); return; }
+  try {
+    if (bundles.length) {
+      for (const f of bundles) {
+        const u = await unpack(f);
+        await analyse(u.files, { id: null, src: null, name: u.name || f.name.replace(/\.kolvatten$/i, '') });
+        await saveCurrent();
+      }
+      if (!files.length) return;
+    }
+    $('fileList').textContent = files.length + ' fil' + (files.length > 1 ? 'er' : '') + ': ' + files.slice(0, 6).map(f => f.name).join(', ') + (files.length > 6 ? ' …' : '');
+    const bufs = await Promise.all(files.map(async f => ({ name: f.name, buf: await f.arrayBuffer() })));
+    await analyse(bufs, { id: null, src: null, name: null });
+  } catch (e) { showErr(e.message || String(e)); console.error(e); }
+}
+async function analyse(bufs, cur, quiet) {
+  const prog = $('prog'); prog.hidden = false; prog.firstElementChild.style.width = '5%';
+  try {
+    const good = [], bad = [];
+    for (const b of bufs) { const h = b.buf.byteLength >= 14 ? new Uint8Array(b.buf, 6, 8) : []; if (String.fromCharCode(...h) === 'YDVR v04') good.push(b); else bad.push(b.name); }
+    if (!good.length) throw new Error('Ingen av filerna är en YDVR-04-logg. Kontrollera att du valt .DAT-filerna från recorderns minneskort.');
+    S = await YD.buildSeries(good, p => prog.firstElementChild.style.width = Math.round(5 + p * 95) + '%');
+    if (!S.cols.lat || !S.cols.lat.some(v => v != null)) throw new Error('Filerna saknar GPS-positioner, så det finns inget spår att visa.');
+    S.skippedFiles = bad;
+    CUR = { id: cur.id, src: cur.src || null, name: cur.name, path: cur.path, shared: !!cur.shared, files: good };
+    $('shareBox').hidden = true;
+    render();
+  } finally { prog.hidden = true; }
+}
+function showErr(m) { const e = $('err'); e.textContent = m; e.hidden = false; }
+
+/* ---------- render ---------- */
+function render() {
+  $('landing').hidden = true; $('app').hidden = false; $('topActions').hidden = false;
+  const C = S.cols, N = S.N, sum = S.sum;
+  const d0 = new Date(S.t0);
+  $('hEyebrow').textContent = d0.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · ' + S.meta.files + ' fil' + (S.meta.files > 1 ? 'er' : '') + (S.skippedFiles.length ? ` (${S.skippedFiles.length} hoppades över)` : '');
+  const uw = sum.underway;
+  const place = nearestName();
+  $('hTitle').textContent = CUR.name || (uw ? `${Math.round((uw[1] - uw[0]) / 60)} minuter under gång${place ? ' ' + place : ''}` : 'Ingen gång i loggen');
+  setSaveUI();
+  const m = [];
+  m.push(`Logg <b>${YD.fmtTime(S, 0)}–${YD.fmtTime(S, N - 1)}</b>`);
+  if (uw) m.push(`Under gång <b>${YD.fmtTime(S, uw[0]).slice(0, 5)}–${YD.fmtTime(S, uw[1]).slice(0, 5)}</b>`);
+  if (sum.dist != null) m.push(`Distans <b>${nf(sum.dist / 1852, 2)} M</b>`);
+  if (sum.maxSog != null) m.push(`Max <b>${nf(sum.maxSog, 1)} kn</b> SOG`);
+  if (sum.tws != null) m.push(`Vind <b>${nf(sum.tws, 0)} kn</b> snitt, <b>${nf(sum.twsMax, 0)}</b> max${sum.twd != null ? `, från <b>${deg(sum.twd)}</b>` : ''}`);
+  if (sum.sailTime || C.rpm) m.push(`Segel/motor <b>${Math.round(sum.sailTime / 60)}/${Math.round(sum.motorTime / 60)} min</b>`);
+  $('hMeta').innerHTML = m.join('<span aria-hidden="true"> </span>');
+  buildMap(); buildTiles(); buildCharts(); buildFindings(); buildTables(); buildPolar(); buildDevices();
+  $('scrub').max = N - 1;
+  seek(uw ? Math.max(0, uw[0] - 10) : 0);
+  window.scrollTo(0, 0);
+}
+function nearestName() { return ''; }
+
+/* ---------- map ---------- */
+function buildMap() {
+  const C = S.cols, N = S.N;
+  if (map) { map.remove(); map = null; }
+  map = L.map('map', { zoomControl: true, attributionControl: true, preferCanvas: true });
+  layers.osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+  layers.sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '© Esri' });
+  layers.sea = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenSeaMap' });
+  layers.osm.addTo(map); layers.sea.addTo(map);
+  layers.track = L.layerGroup().addTo(map);
+  layers.ev = L.layerGroup().addTo(map);
+  const pts = []; for (let i = 0; i < N; i++) if (C.lat[i] != null) pts.push([C.lat[i], C.lon[i]]);
+  const uw = S.sum.underway; const fitPts = uw ? pts.slice(uw[0], uw[1] + 1) : pts;
+  map.fitBounds(L.latLngBounds(fitPts.length > 1 ? fitPts : pts).pad(0.15));
+  drawTrack();
+  // events: autopilot changes
+  if (C.mode) {
+    let prev = null, prevLock = null, lastEv = null;
+    for (let i = 0; i < N; i++) {
+      const on = S.ap[i];
+      if (prev !== null && on !== prev) addEv(i, on ? `Auto ${deg(C.lock[i] ?? C.hdg[i])}` : 'Standby');
+      else if (on && C.lock[i] != null && prevLock != null && Math.abs(YD.norm180(C.lock[i] - prevLock)) >= 0.9) {
+        let d = YD.norm180(C.lock[i] - prevLock), at = i;
+        if (lastEv && i - lastEv.i < 6) { layers.ev.removeLayer(lastEv.m); d += lastEv.d; at = lastEv.i; }
+        lastEv = { i: at, d, m: addEv(at, `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d))} → ${deg(C.lock[i])}`) };
+      }
+      prev = on; if (on) prevLock = C.lock[i]; else prevLock = null;
+    }
+  }
+  S.man.forEach((mn, k) => { const p = [C.lat[mn.a], C.lon[mn.a]]; L.marker(p, { icon: L.divIcon({ className: '', html: `<div class="man-ic">${k + 1}</div>`, iconSize: [16, 16], iconAnchor: [8, 8] }), keyboard: false }).on('click', () => seek(mn.a)).addTo(layers.ev); });
+  layers.wake = L.polyline([], { color: dark() ? '#fff' : '#14232B', weight: 2, dashArray: '2 5', opacity: .7 }).addTo(map);
+  layers.boat = L.marker(pts[0], { icon: boatIcon(0, null), interactive: false, zIndexOffset: 1000 }).addTo(map);
+  const bgBtn = (id, key) => $(id).onclick = () => { ['bgChart', 'bgSat'].forEach(b => $(b).setAttribute('aria-pressed', b === id)); if (key === 'sat') { map.removeLayer(layers.osm); layers.sat.addTo(map); } else { map.removeLayer(layers.sat); layers.osm.addTo(map); } layers.sat.bringToBack(); layers.osm.bringToBack(); };
+  bgBtn('bgChart', 'osm'); bgBtn('bgSat', 'sat');
+  const cb = (id, mode) => $(id).onclick = () => { colorMode = mode; ['cSpeed', 'cDepth', 'cWind', 'cPilot'].forEach(b => $(b).setAttribute('aria-pressed', b === id)); drawTrack(); };
+  cb('cSpeed', 'speed'); cb('cDepth', 'depth'); cb('cWind', 'wind'); cb('cPilot', 'pilot');
+  $('cDepth').hidden = !C.dep; $('cWind').hidden = !C.twa; $('cPilot').hidden = !C.mode;
+  setTimeout(() => map.invalidateSize(), 50);
+}
+function addEv(i, label) {
+  const C = S.cols;
+  return L.marker([C.lat[i], C.lon[i]], { icon: L.divIcon({ className: '', html: `<div class="ev-ic"><svg width="10" height="10" style="vertical-align:-1px;margin-right:4px"><circle cx="5" cy="5" r="3.5" fill="#fff" stroke="#2E6FD0" stroke-width="2"/></svg>${label}</div>`, iconSize: null, iconAnchor: [5, 6] }), keyboard: false }).on('click', () => seek(i)).addTo(layers.ev);
+}
+function boatIcon(h, twd) {
+  const ink = '#14232B';
+  const wind = twd == null ? '' : `<g transform="rotate(${twd + 180 - h})"><line x1="0" y1="-46" x2="0" y2="-22" stroke="#B8246E" stroke-width="2.4"/><path d="M-5 -28 L0 -19 L5 -28Z" fill="#B8246E"/></g>`;
+  return L.divIcon({ className: 'boat-ic', iconSize: [0, 0], iconAnchor: [0, 0], html: `<svg width="0" height="0"><g transform="rotate(${h})"><path d="M0 -14 C5.5 -6 6 4 4.4 12 L-4.4 12 C-6 4 -5.5 -6 0 -14Z" fill="${ink}" stroke="#fff" stroke-width="1.6"/>${wind}</g></svg>` });
+}
+function ramp(t, a, b) { t = Math.max(0, Math.min(1, t)); return 'rgb(' + a.map((x, k) => Math.round(x + (b[k] - x) * t)).join(',') + ')'; }
+const RM = { speed: [[246, 190, 218], [120, 14, 70]], depth: [[178, 222, 245], [16, 60, 140]] };
+function segColor(i) {
+  const C = S.cols;
+  if (colorMode === 'speed') return ramp((C.sog[i] ?? 0) / Math.max(4, S.sum.maxSog || 6), ...RM.speed);
+  if (colorMode === 'depth') return C.dep[i] == null ? '#999' : ramp((C.dep[i] - 2) / 18, ...RM.depth);
+  if (colorMode === 'wind') { const a = Math.abs(C.twa[i] ?? 0); return a < 60 ? '#B8246E' : a < 110 ? '#C98A1A' : '#2E6FD0'; }
+  return S.ap[i] ? '#2E6FD0' : '#B8246E';
+}
+function drawTrack() {
+  const C = S.cols, N = S.N; layers.track.clearLayers();
+  const step = Math.max(1, Math.ceil(N / 2500));
+  let run = [], col = null;
+  const flush = () => { if (run.length > 1) L.polyline(run, { color: col, weight: 4, opacity: .95, lineCap: 'round', interactive: false }).addTo(layers.track); };
+  for (let i = 0; i < N; i += step) {
+    if (C.lat[i] == null) continue;
+    const c = segColor(i);
+    if (c !== col) { if (run.length) { run.push([C.lat[i], C.lon[i]]); flush(); } run = [[C.lat[i], C.lon[i]]]; col = c; }
+    else run.push([C.lat[i], C.lon[i]]);
+  }
+  flush();
+  const lg = $('legend');
+  if (colorMode === 'speed') lg.innerHTML = `SOG <span class="ramp" style="background:linear-gradient(90deg,${ramp(0, ...RM.speed)},${ramp(1, ...RM.speed)})"></span> 0 → ${nf(Math.max(4, S.sum.maxSog || 6), 1)} kn`;
+  else if (colorMode === 'depth') lg.innerHTML = `Djup <span class="ramp" style="background:linear-gradient(90deg,${ramp(0, ...RM.depth)},${ramp(1, ...RM.depth)})"></span> 2 → 20 m`;
+  else if (colorMode === 'wind') lg.innerHTML = '<span><span class="sw" style="background:#B8246E"></span>Kryss &lt;60°</span><span><span class="sw" style="background:#C98A1A"></span>Halvvind 60–110°</span><span><span class="sw" style="background:#2E6FD0"></span>Slör/läns &gt;110°</span>';
+  else lg.innerHTML = '<span><span class="sw" style="background:#2E6FD0"></span>Autopilot</span><span><span class="sw" style="background:#B8246E"></span>Handstyrning</span>';
+  lg.innerHTML += '<span style="margin-left:auto">Siffror = manövrer · blå = autopilot</span>';
+}
+
+/* ---------- instruments ---------- */
+let TILES = [];
+function buildTiles() {
+  const C = S.cols;
+  const all = [['sog', 'SOG', 'kn', v => nf(v, 1)], ['stw', 'STW', 'kn', v => nf(v, 1)], ['hdg', 'Kurs', 'mag', deg], ['cog', 'COG', 'sann', deg], ['tws', 'TWS', 'kn', v => nf(v, 1)], ['twa', 'TWA', '', sgn], ['twd', 'TWD', 'mag', deg], ['aws', 'AWS', 'kn', v => nf(v, 1)], ['awa', 'AWA', '', sgn], ['vmg', 'VMG', 'kn', v => nf(v, 2)], ['dep', 'Djup', 'm', v => nf(v, 1)], ['heel', 'Kräng.', '', v => nf(v, 1) + '°'], ['rud', 'Roder', '', v => nf(v, 1) + '°'], ['rpm', 'Motor', 'rpm', v => v == null ? '–' : Math.round(v)], ['temp', 'Vatten', '°C', v => nf(v, 1)]];
+  TILES = all.filter(t => C[t[0]]);
+  const box = $('tiles'); box.innerHTML = '';
+  TILES.forEach(([k, lab, u]) => { const d = document.createElement('div'); d.className = 'tile'; d.innerHTML = `<span class="k">${lab}</span><span class="v">–</span><span class="u">${u || '&nbsp;'}</span>`; box.appendChild(d); TILES.find(t => t[0] === k).el = d.querySelector('.v'); });
+  for (let k = TILES.length % 3 ? 3 - TILES.length % 3 : 0; k > 0; k--) { const d = document.createElement('div'); d.className = 'tile'; box.appendChild(d); }
+  // rose
+  const r = $('rose'); r.innerHTML = '';
+  el('circle', { r: 90, fill: 'none', stroke: 'var(--line)', 'stroke-width': 1.5 }, r);
+  for (let a = 0; a < 360; a += 30) { const q = a * Math.PI / 180; el('line', { x1: Math.sin(q) * 84, y1: -Math.cos(q) * 84, x2: Math.sin(q) * 90, y2: -Math.cos(q) * 90, stroke: 'var(--muted)', 'stroke-width': 1 }, r); }
+  [[0, '0'], [90, '90'], [180, '180'], [270, '90']].forEach(([a, t]) => { const q = a * Math.PI / 180; el('text', { x: Math.sin(q) * 102, y: -Math.cos(q) * 102 + 4, 'text-anchor': 'middle', 'font-family': 'var(--f-mono)', 'font-size': 10, fill: 'var(--muted)' }, r).textContent = t; });
+  el('path', { d: 'M0 -40 C14 -20 15 12 11 34 L-11 34 C-15 12 -14 -20 0 -40Z', fill: 'var(--grid)', stroke: 'var(--ink2)', 'stroke-width': 1.5 }, r);
+  const arrow = col => { const g = el('g', {}, r); el('line', { x1: 0, y1: -88, x2: 0, y2: -50, stroke: col, 'stroke-width': 3, 'stroke-linecap': 'round' }, g); el('path', { d: 'M-7 -58 L0 -46 L7 -58Z', fill: col }, g); return g; };
+  S.awaArrow = arrow('var(--blue)'); S.twaArrow = arrow('var(--accent)');
+}
+function legAt(i) {
+  const L = S.legs.find(l => i >= l.a && i < l.b); if (L) return { n: legName(L), d: legDesc(L) };
+  const m = S.man.find(q => i >= q.a && i <= q.b); if (m) return { n: manName(m), d: m.turn == null ? 'Kursändring över 50°.' : `${sgn(m.turn)} vridning` };
+  return S.moving[i] ? { n: 'Under gång', d: 'Kort sträcka eller låg fart.' } : { n: 'Stilla', d: 'Båten ligger still eller rör sig under 1 kn.' };
+}
+function legName(L) { return L.pos ? `${L.pos}${L.pos !== 'Läns' && L.tack ? ', ' + L.tack + 's halsar' : ''}` : 'Rak sträcka'; }
+function legDesc(L) { return `${deg(L.hdg)} i ${nf(L.stw ?? L.sog, 1)} kn${L.twa != null ? `, TWA ${sgn(L.twa)}` : ''}${L.motor.startsWith('motor') ? ' · motor' + (L.motor.endsWith('?') ? ' (bedömt)' : '') : L.motor === 'segel' ? ' · segel' : ''}`; }
+function manName(m) { return { tack: 'Slag', gybe: 'Gipp', turn: 'Gir' }[m.type] + (m.motor && m.type !== 'turn' ? ' (motor)' : ''); }
+
+/* ---------- charts ---------- */
+function buildCharts() {
+  const C = S.cols, box = $('charts'); box.innerHTML = ''; CH.length = 0;
+  const defs = [
+    { k: ['sog', 'stw'], t: 'Fart', u: 'kn', lab: ['SOG', 'STW'], col: ['var(--accent)', 'var(--blue)'], h: 110 },
+    { k: ['tws'], t: 'Sann vindstyrka', u: 'kn' },
+    { k: ['twd'], t: 'Sann vindriktning', u: '° mag', circ: true },
+    { k: ['twa'], t: 'Sann vindvinkel', u: '°, + = styrbord', sym: true },
+    { k: ['hdg'], t: 'Kurs', u: '° mag', circ: true },
+    { k: ['heel'], t: 'Krängning', u: '°', sym: true },
+    { k: ['dep'], t: 'Djup', u: 'm', inv: true },
+    { k: ['rud'], t: 'Roder', u: '°', sym: true },
+    { k: ['rpm'], t: 'Motor', u: 'rpm' },
+  ].filter(d => d.k.some(k => C[k] && C[k].some(v => v != null)));
+  defs.forEach(d => {
+    d.k = d.k.filter(k => C[k]); d.lab = d.lab || [d.t]; d.col = d.col || ['var(--accent)'];
+    const vals = []; d.k.forEach(k => C[k].forEach(v => v != null && vals.push(v)));
+    if (d.circ) { d.min = 0; d.max = 360; d.ticks = [0, 90, 180, 270, 360]; }
+    else if (d.sym) { const m = Math.max(10, ...vals.map(Math.abs)); const s = niceStep(m / 2); d.max = Math.ceil(m / s) * s; d.min = -d.max; d.ticks = [-d.max, 0, d.max]; }
+    else { const mx = Math.max(...vals), s = niceStep(mx / 3); d.min = 0; d.max = Math.max(s, Math.ceil(mx / s) * s); d.ticks = []; for (let v = 0; v <= d.max + 1e-9; v += s) d.ticks.push(+v.toFixed(3)); }
+    const wrap = document.createElement('div'); wrap.className = 'chart';
+    const leg = d.k.length > 1 ? d.lab.map((l, j) => `<span class="l"><span class="sw" style="background:${d.col[j]}"></span>${l}</span>`).join('') : '';
+    wrap.innerHTML = `<div class="ttl">${d.t} <span class="l">${d.u}</span>${leg}</div>`;
+    const s = document.createElementNS(NS, 'svg'); wrap.appendChild(s);
+    const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; wrap.appendChild(tip);
+    box.appendChild(wrap); const ch = { d, s, tip }; CH.push(ch);
+    const toIdx = ev => { const r = s.getBoundingClientRect(); const px = (ev.clientX - r.left) * (ch.W / r.width); return Math.max(0, Math.min(S.N - 1, Math.round((px - M.l) / (ch.W - M.l - M.r) * (S.N - 1)))); };
+    s.addEventListener('pointermove', ev => { const i = toIdx(ev); tip.hidden = false; const r = s.getBoundingClientRect(); tip.style.left = Math.min(Math.max(ev.clientX - r.left, 70), r.width - 70) + 'px'; tip.textContent = YD.fmtTime(S, i) + '  ' + d.k.map((k, j) => d.lab[j] + ' ' + (C[k][i] == null ? '–' : d.circ ? deg(C[k][i]) : nf(C[k][i], 1))).join('  '); });
+    s.addEventListener('pointerleave', () => tip.hidden = true);
+    s.addEventListener('click', ev => seek(toIdx(ev)));
+  });
+  drawCharts();
+}
+function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x || 1))); const f = x / p; return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p; }
+const M = { l: 40, r: 10, t: 6, b: 18 };
+function drawCharts() {
+  const C = S.cols, N = S.N;
+  const dur = N / 60; const stepMin = [1, 2, 5, 10, 15, 30, 60, 120].find(s => dur / s <= 10) || 240;
+  CH.forEach((ch, ci) => {
+    const { d, s } = ch; const W = s.clientWidth || 800, H = d.h || 80; ch.W = W;
+    s.setAttribute('viewBox', `0 0 ${W} ${H}`); s.setAttribute('height', H); s.innerHTML = '';
+    const x = i => M.l + (W - M.l - M.r) * i / (N - 1);
+    const y = v => { let t = (v - d.min) / (d.max - d.min); if (d.inv) t = 1 - t; return M.t + (H - M.t - M.b) * (1 - t); };
+    ch.x = x;
+    // bands: autopilot and motor
+    band(s, S.ap, x, H, 'var(--ap)');
+    const mot = new Array(N).fill(false); S.legs.forEach(L => { if (L.motor.startsWith('motor')) for (let k = L.a; k < L.b; k++) mot[k] = true; });
+    if (!C.mode) band(s, mot, x, H, 'var(--motor)');
+    d.ticks.forEach(v => { el('line', { x1: M.l, x2: W - M.r, y1: y(v), y2: y(v), stroke: 'var(--grid)', 'stroke-width': 1 }, s); el('text', { x: M.l - 6, y: y(v) + 3.5, 'text-anchor': 'end', 'font-family': 'var(--f-mono)', 'font-size': 10, fill: 'var(--muted)' }, s).textContent = v; });
+    const first = new Date(S.t0); const startMin = first.getHours() * 60 + first.getMinutes() + first.getSeconds() / 60;
+    const pxPerMin = (W - M.l - M.r) / dur; let every = stepMin; while (pxPerMin * every < 48) every *= 2;
+    for (let mm = Math.ceil(startMin / every) * every; mm < startMin + dur; mm += every) {
+      const i = Math.round((mm - startMin) * 60); if (i < 0 || i >= N) continue; const X = x(i);
+      el('line', { x1: X, x2: X, y1: M.t, y2: H - M.b, stroke: 'var(--grid)', 'stroke-width': 1 }, s);
+      const hh = Math.floor(mm / 60) % 24, mi = Math.round(mm % 60);
+      el('text', { x: X, y: H - 5, 'text-anchor': 'middle', 'font-family': 'var(--f-mono)', 'font-size': 9.5, fill: 'var(--muted)' }, s).textContent = String(hh).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+    }
+    const step = Math.max(1, Math.floor(N / (W * 1.5)));
+    d.k.forEach((k, j) => {
+      let p = '', pen = false, prev = null;
+      for (let i = 0; i < N; i += step) {
+        const v = C[k][i]; if (v == null) { pen = false; continue; }
+        if (d.circ && prev != null && Math.abs(v - prev) > 180) pen = false;
+        if (d.sym && prev != null && Math.abs(v - prev) > 180) pen = false;
+        p += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(Math.max(d.min, Math.min(d.max, v))).toFixed(1); pen = true; prev = v;
+      }
+      el('path', { d: p, fill: 'none', stroke: d.col[j], 'stroke-width': 1.6, 'stroke-linejoin': 'round' }, s);
+    });
+    ch.cur = el('line', { x1: 0, x2: 0, y1: M.t, y2: H - M.b, stroke: 'var(--ink)', 'stroke-width': 1.2 }, s);
+  });
+  update(idx);
+}
+function band(s, arr, x, H, fill) { let a0 = null; for (let i = 0; i <= arr.length; i++) { if (i < arr.length && arr[i]) { if (a0 == null) a0 = i; } else if (a0 != null) { el('rect', { x: x(a0), y: M.t, width: Math.max(1, x(i) - x(a0)), height: H - M.t - M.b, fill }, s); a0 = null; } } }
+
+/* ---------- findings & tables ---------- */
+function buildFindings() {
+  const box = $('findings'); box.innerHTML = '';
+  S.findings.forEach(f => { const a = document.createElement('article'); a.className = 'finding';
+    a.innerHTML = `<span class="tag ${f.lvl}">${f.tag}</span><h3></h3>${f.big ? '<div class="big"></div>' : ''}<p></p>`;
+    a.querySelector('h3').textContent = f.title; if (f.big) a.querySelector('.big').textContent = f.big; a.querySelector('p').textContent = f.text; box.appendChild(a); });
+  if (!S.findings.length) box.innerHTML = '<p class="note">För lite data under gång för att analysera.</p>';
+}
+function buildTables() {
+  const lr = $('legRows'); lr.innerHTML = '';
+  if (!S.legs.length) lr.innerHTML = '<tr><td colspan="13">Inga raka sträckor över 30 sekunder.</td></tr>';
+  S.legs.forEach(L => { const tr = document.createElement('tr'); const dur = L.b - L.a;
+    tr.innerHTML = `<td>${YD.fmtTime(S, L.a).slice(0, 5)}</td><td>${legName(L)}${L.motor.startsWith('motor') ? '<span class="badge">motor' + (L.motor.endsWith('?') ? '?' : '') + '</span>' : ''}${L.ap > .5 ? '<span class="badge">auto</span>' : ''}</td><td>${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, '0')}</td><td>${Math.round(L.dist)} m</td><td>${nf(L.sog, 2)}</td><td>${nf(L.stw, 2)}</td><td>${deg(L.hdg)}</td><td>${nf(L.tws, 1)}</td><td>${sgn(L.twa)}</td><td>${deg(L.twd)}</td><td>${nf(L.vmg == null ? null : Math.abs(L.vmg), 2)}</td><td>${nf(L.heel, 1)}°</td><td>${nf(L.rud, 1)}°</td>`;
+    tr.onclick = () => { seek(L.a + 3); $('map').scrollIntoView({ behavior: 'smooth', block: 'center' }); }; lr.appendChild(tr); });
+  const mr = $('manRows'); mr.innerHTML = '';
+  if (!S.man.length) mr.innerHTML = '<tr><td colspan="9">Inga girar över 50°.</td></tr>';
+  S.man.forEach((m, k) => { const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${YD.fmtTime(S, m.a)}</td><td>${k + 1}. ${manName(m)}</td><td>${sgn(m.turn)} ${m.turn > 0 ? 'SB' : 'BB'}</td><td>${sgn(m.t0)}</td><td>${sgn(m.t1)}</td><td>${nf(m.v0, 2)} kn</td><td>${nf(m.vmin, 2)} kn</td><td>${m.recover == null ? '–' : m.recover + ' s'}</td><td>${m.loss != null && !m.motor ? nf(m.loss, 0) + ' m' : '–'}</td>`;
+    tr.onclick = () => { seek(Math.max(0, m.a - 5)); $('map').scrollIntoView({ behavior: 'smooth', block: 'center' }); }; mr.appendChild(tr); });
+}
+function buildPolar() {
+  const C = S.cols, svg = $('polar'); svg.innerHTML = '';
+  const sailMask = new Array(S.N).fill(false); S.legs.forEach(L => { if (L.motor === 'segel') for (let k = L.a; k < L.b; k++) sailMask[k] = true; });
+  const pts = []; if (C.twa) for (let i = 0; i < S.N; i += 2) { const sp = C.stw?.[i] ?? C.sog?.[i]; if (C.twa[i] != null && sp != null && sp > 0.5 && S.moving[i]) pts.push({ a: Math.abs(C.twa[i]), v: sp, w: C.tws[i], sail: sailMask[i] }); }
+  const sailPts = pts.filter(p => p.sail); const use = sailPts.length > 30 ? sailPts : pts;
+  const vmax = Math.max(4, ...use.map(p => p.v)); const R = 220, st = niceStep(vmax / 4), rmax = Math.ceil(vmax / st) * st, sc = R / rmax;
+  for (let v = st; v <= rmax + 1e-9; v += st) { el('path', { d: `M0 ${-v * sc} A${v * sc} ${v * sc} 0 0 1 0 ${v * sc}`, fill: 'none', stroke: 'var(--grid)', 'stroke-width': 1 }, svg); el('text', { x: 4, y: -v * sc + 12, 'font-family': 'var(--f-mono)', 'font-size': 10, fill: 'var(--muted)' }, svg).textContent = nf(v, v % 1 ? 1 : 0) + ' kn'; }
+  for (let a = 0; a <= 180; a += 30) { const q = a * Math.PI / 180; el('line', { x1: 0, y1: 0, x2: Math.sin(q) * R, y2: -Math.cos(q) * R, stroke: 'var(--grid)', 'stroke-width': 1 }, svg); el('text', { x: Math.sin(q) * (R + 14), y: -Math.cos(q) * (R + 14) + 4, 'text-anchor': 'middle', 'font-family': 'var(--f-mono)', 'font-size': 10, fill: 'var(--muted)' }, svg).textContent = a + '°'; }
+  const bins = [[0, 8], [8, 12], [12, 16], [16, 99]]; const cols = dark() ? ['#9CC3F2', '#6FA0E8', '#4A7FD6', '#2C5DB0'] : ['#9EC3EE', '#5C93DD', '#2E6FD0', '#1B4A93'];
+  use.forEach(p => { const b = bins.findIndex(([lo, hi]) => (p.w ?? 0) >= lo && (p.w ?? 0) < hi); const q = p.a * Math.PI / 180; el('circle', { cx: Math.sin(q) * p.v * sc, cy: -Math.cos(q) * p.v * sc, r: 2.2, fill: cols[Math.max(0, b)], opacity: .7 }, svg); });
+  // 90th percentile envelope per 10 deg
+  const env = []; for (let a = 20; a < 180; a += 10) { const v = use.filter(p => p.a >= a && p.a < a + 10).map(p => p.v).sort((x, y) => x - y); if (v.length >= 8) env.push([a + 5, v[Math.floor(v.length * .9)]]); }
+  if (env.length > 1) el('path', { d: env.map(([a, v], k) => (k ? 'L' : 'M') + (Math.sin(a * Math.PI / 180) * v * sc).toFixed(1) + ' ' + (-Math.cos(a * Math.PI / 180) * v * sc).toFixed(1)).join(''), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2 }, svg);
+  $('polarNote').textContent = sailPts.length > 30 ? `${sailPts.length * 2} sekunder seglad fart genom vattnet mot sann vindvinkel (båda bogarna speglade till samma sida). Den röda linjen är den 90:e percentilen per 10°, ett grovt mått på vad båten klarar.` : `Loggen innehåller för lite segling för ett riktigt polardiagram, så här visas all gång${pts.length ? ' (även motor)' : ''}. Ladda upp en seglad tur så fylls diagrammet med seglade värden.`;
+  $('polarLegend').innerHTML = 'TWS: ' + bins.map(([lo, hi], k) => `<span style="white-space:nowrap;margin-right:10px"><span class="sw" style="background:${cols[k]}"></span>${hi > 90 ? '≥' + lo : lo + '–' + hi} kn</span>`).join('');
+}
+function buildDevices() {
+  const box = $('devs'); box.innerHTML = '';
+  const e = Object.entries(S.devices);
+  if (!e.length) { box.innerHTML = '<p class="note">Inga produktuppgifter (PGN 126996) i loggen.</p>'; return; }
+  e.sort((a, b) => a[0] - b[0]).forEach(([src, d]) => { const x = document.createElement('div'); x.innerHTML = '<b></b><span></span>'; x.querySelector('b').textContent = d.ver && !/^[\d.\-]+$/.test(d.ver) && d.ver.length < 40 && !d.ver.includes(',') ? d.ver : d.model; x.querySelector('span').textContent = `adress ${src} · ${d.model}${d.sw ? ' · v' + d.sw : ''}`; box.appendChild(x); });
+}
+
+/* ---------- playback ---------- */
+function update(i) {
+  if (!S) return; idx = i; const C = S.cols;
+  $('clock').textContent = YD.fmtTime(S, i); $('scrub').value = i;
+  if (layers.boat && C.lat[i] != null) {
+    layers.boat.setLatLng([C.lat[i], C.lon[i]]); layers.boat.setIcon(boatIcon(C.hdg?.[i] ?? C.cog?.[i] ?? 0, C.twd?.[i] ?? null));
+    const w = []; for (let k = Math.max(0, i - 60); k <= i; k += 2) if (C.lat[k] != null) w.push([C.lat[k], C.lon[k]]); layers.wake.setLatLngs(w);
+  }
+  TILES.forEach(t => t.el && (t.el.textContent = t[3](C[t[0]][i])));
+  const ap = $('apPill'); if (C.mode) { ap.hidden = false; ap.textContent = S.ap[i] ? 'Auto' : 'Standby'; ap.classList.toggle('on', S.ap[i]); }
+  const mp = $('motorPill'); const L = S.legs.find(l => i >= l.a && i < l.b); mp.hidden = !(C.rpm ? (C.rpm[i] ?? 0) > 300 : L && L.motor.startsWith('motor'));
+  const lg = legAt(i); $('legName').textContent = lg.n; $('legNote').textContent = lg.d;
+  if (S.awaArrow) { S.awaArrow.setAttribute('transform', `rotate(${C.awa?.[i] ?? 0})`); S.twaArrow.setAttribute('transform', `rotate(${C.twa?.[i] ?? 0})`); S.awaArrow.style.display = C.awa?.[i] == null ? 'none' : ''; S.twaArrow.style.display = C.twa?.[i] == null ? 'none' : ''; }
+  CH.forEach(ch => { if (ch.cur) { const X = ch.x(i); ch.cur.setAttribute('x1', X); ch.cur.setAttribute('x2', X); } });
+}
+function seek(i) { update(Math.max(0, Math.min(S.N - 1, i | 0))); }
+let playing = false, last = 0, acc = 0;
+function setPlay(p) { playing = p; $('playIcon').setAttribute('d', p ? 'M3 2h4v12H3zM9 2h4v12H9z' : 'M4 2l10 6-10 6z'); $('play').setAttribute('aria-label', p ? 'Pausa' : 'Spela upp'); if (p) { if (idx >= S.N - 1) idx = 0; last = performance.now(); requestAnimationFrame(tick); } }
+function stop() { setPlay(false); }
+function tick(t) {
+  if (!playing) return;
+  acc += (t - last) / 1000 * +$('rate').value; last = t;
+  if (acc >= 1) { const n = Math.floor(acc); acc -= n; let ni = idx + n; if (!S.moving[idx]) { let k = idx; while (k < S.N - 1 && !S.moving[k] && k - idx < n * 8) k++; ni = Math.max(ni, k); } seek(ni); if (idx >= S.N - 1) { setPlay(false); return; } }
+  requestAnimationFrame(tick);
+}
+$('play').addEventListener('click', () => setPlay(!playing));
+$('scrub').addEventListener('input', e => seek(+e.target.value));
+let rt; addEventListener('resize', () => { if (!S) return; clearTimeout(rt); rt = setTimeout(drawCharts, 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (S) { buildPolar(); layers.wake && layers.wake.setStyle({ color: dark() ? '#fff' : '#14232B' }); } });
+
+/* ---------- exports ---------- */
+function save(name, text, type) { const b = new Blob([text], { type }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+const stamp = () => new Date(S.t0).toISOString().slice(0, 16).replace(/[:T]/g, '-');
+$('btnCsv').addEventListener('click', () => save(`kolvatten-${stamp()}.csv`, YD.toCSV(S), 'text/csv'));
+$('btnGpx').addEventListener('click', () => save(`kolvatten-${stamp()}.gpx`, YD.toGPX(S), 'application/gpx+xml'));
+openSharedFromUrl().then(done => { if (!done && !sb) renderLibrary(); });
+})();
+</script>
+</body>
+</html>
