@@ -325,8 +325,8 @@ footer{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:
 /* ====== INSTÄLLNINGAR: fyll i från Supabase → Project Settings → API ======
    Lämna som de är för att köra utan molnlagring (turer sparas då bara i webbläsaren). */
 window.KOLVATTEN_CONFIG = {
-  supabaseUrl: "https://DITT-PROJEKT.supabase.co",
-  supabaseAnonKey: "DIN-ANON-PUBLIC-NYCKEL"
+  supabaseUrl: "https://smqfmtcejwbugvwbymjt.supabase.co",
+  supabaseAnonKey: "sb_publishable_TdCm8k9TLs6dpH_tJAXbMQ_R4Sjpfiu"
 };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
@@ -844,6 +844,8 @@ function showLanding() { if (location.search) history.replaceState(null, '', loc
 let CUR = null; // {id|null, src:'local'|'cloud'|null, name, files:[{name,buf}], shared:bool}
 const CFG = window.KOLVATTEN_CONFIG || {};
 let sb = null, user = null;
+if (CFG.supabaseUrl) CFG.supabaseUrl = String(CFG.supabaseUrl).trim().replace(/\/(rest|auth|storage)\/v1\/?.*$/, '').replace(/\/+$/, '');
+if (CFG.supabaseAnonKey) CFG.supabaseAnonKey = String(CFG.supabaseAnonKey).trim();
 if (CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase && !/DITT-PROJEKT|XXXX/.test(CFG.supabaseUrl)) {
   try { sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { flowType: 'implicit', persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } }); }
   catch (e) { console.error(e); sb = null; }
